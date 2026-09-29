@@ -13,3 +13,4 @@ psycopg2-binary==2.9.9
 
 # Billing
 stripe>=10.0.0,<11.0.0
+requests-oauthlib==2.0.0

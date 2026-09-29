@@ -3,11 +3,14 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
+import { DemoButton } from "@/components/demo-button";
+import { useSiteStatus } from "@/lib/site-status";
 
 export function LoginPage() {
   const navigate = useNavigate();
   const [sp] = useSearchParams();
   const { setUser } = useAuth();
+  const { showcase_mode: showcase } = useSiteStatus();
 
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -36,7 +39,7 @@ export function LoginPage() {
       const user = (data?.user ?? null) as any;
       setUser(user);
 
-      const isPaid = Boolean(user?.is_paid) || user?.role === "admin" || user?.role === "showcase";
+      const isPaid = showcase || Boolean(user?.is_paid) || user?.role === "admin" || user?.role === "showcase";
       const next = sp.get("next");
 
       if (next) {
@@ -104,6 +107,19 @@ export function LoginPage() {
           </div>
         </form>
       </div>
+
+      {showcase ? (
+        <div className="mt-4 glass-card p-5 text-sm">
+          <div className="font-medium text-zinc-100">Just looking around?</div>
+          <p className="mt-1 muted">Use the read-only demo account. No password needed.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <DemoButton className="btn-secondary h-9 px-4">Use the demo account</DemoButton>
+            <Link to="/recruiters" className="btn-ghost h-9 px-3">
+              Recruiter tour
+            </Link>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

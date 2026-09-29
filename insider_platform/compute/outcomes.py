@@ -6,6 +6,7 @@ from insider_platform.config import Config
 from insider_platform.db import get_app_config
 from insider_platform.jobs.queue import enqueue_job
 from insider_platform.models import EventKey
+from insider_platform.compute.ticker_validation import get_validation_status
 from insider_platform.util.time import utcnow_iso
 
 
@@ -31,7 +32,7 @@ def compute_outcomes_for_event(conn: Any, cfg: Config, event_key: EventKey) -> N
     """
     ev = conn.execute(
         """
-        SELECT issuer_cik, filing_date,
+        SELECT issuer_cik, ticker, filing_date,
                buy_trade_date, sell_trade_date,
                buy_vwap_price, sell_vwap_price,
                has_buy, has_sell
@@ -42,6 +43,34 @@ def compute_outcomes_for_event(conn: Any, cfg: Config, event_key: EventKey) -> N
     ).fetchone()
     if ev is None:
         raise RuntimeError(f"Event not found: {event_key}")
+
+    if get_validation_status(conn, event_key.issuer_cik, ev.get("ticker")) == "invalid":
+        if int(ev["has_buy"]) == 1:
+            _upsert_missing(
+                conn,
+                cfg,
+                event_key,
+                side="buy",
+                trade_date=ev["buy_trade_date"],
+                p0=None,
+                reason="ticker_validation_failed",
+                bench_symbol=(get_app_config(conn, "benchmark_symbol_resolved") or cfg.BENCHMARK_SYMBOL or "").strip() or "SPY.US",
+                bench_missing_reason=None,
+            )
+        if int(ev["has_sell"]) == 1:
+            _upsert_missing(
+                conn,
+                cfg,
+                event_key,
+                side="sell",
+                trade_date=ev["sell_trade_date"],
+                p0=None,
+                reason="ticker_validation_failed",
+                bench_symbol=(get_app_config(conn, "benchmark_symbol_resolved") or cfg.BENCHMARK_SYMBOL or "").strip() or "SPY.US",
+                bench_missing_reason=None,
+            )
+        _touch_event(conn, event_key)
+        return
 
     # Issuer price series (required for trade returns).
     issuer_series = _load_prices(conn, event_key.issuer_cik)

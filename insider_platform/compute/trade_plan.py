@@ -3,7 +3,7 @@ from __future__ import annotations
 """Technicals-only trade plan (BETA).
 
 This module generates **suggested** stop-loss / trims / take-profit levels for
-high-confidence BUY signals.
+BUY signals that meet the automatic AI-rating threshold.
 
 Important constraints / notes:
   - The project currently stores only *adjusted close* prices in
@@ -175,29 +175,21 @@ def compute_trade_plan_for_event(
         return _ineligible("No buy activity for this event.")
 
     rating, confidence = _extract_buy_signal_strength(ai_output, event)
-    # If we have rating/confidence, enforce thresholds. If missing, still compute a
-    # technical plan (the levels are independent of AI).
-    if rating is not None and confidence is not None:
-        if rating < float(getattr(cfg, "TRADE_PLAN_MIN_BUY_RATING", 8.0)):
-            return _ineligible(
-                "Buy rating below threshold.",
-                extra={
-                    "signal": {
-                        "rating": round(float(rating), 1),
-                        "confidence": _clamp(float(confidence), 0.0, 1.0),
-                    }
-                },
-            )
-        if confidence < float(getattr(cfg, "TRADE_PLAN_MIN_BUY_CONFIDENCE", 0.60)):
-            return _ineligible(
-                "Confidence below threshold.",
-                extra={
-                    "signal": {
-                        "rating": round(float(rating), 1),
-                        "confidence": _clamp(float(confidence), 0.0, 1.0),
-                    }
-                },
-            )
+    # Internal AI ratings are 1-10. The product UI displays the same score on a
+    # 1-100 scale, so a displayed 60 maps to an internal 6.0 threshold.
+    min_rating = float(getattr(cfg, "TRADE_PLAN_MIN_BUY_RATING", 6.0))
+    if rating is not None and rating < min_rating:
+        return _ineligible(
+            "AI rating doesn't meet automatic trade plan threshold.",
+            extra={
+                "signal": {
+                    "rating": round(float(rating), 1),
+                    "confidence": _clamp(float(confidence), 0.0, 1.0) if confidence is not None else None,
+                    "threshold": round(min_rating, 1),
+                    "display_threshold": int(round(min_rating * 10)),
+                }
+            },
+        )
 
     issuer_cik = str(event.get("issuer_cik") or "").zfill(10)
     if not issuer_cik:

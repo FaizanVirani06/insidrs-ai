@@ -5,6 +5,7 @@ import { useSearchParams } from "react-router-dom";
 
 import { useAuth } from "@/components/auth-provider";
 import { apiFetch } from "@/lib/api";
+import { useSiteStatus } from "@/lib/site-status";
 
 type PlansResponse = {
   monthly?: string | null;
@@ -65,6 +66,7 @@ export function AccountPage() {
     }
   }, [sp, refresh]);
 
+  const { showcase_mode: siteShowcase } = useSiteStatus();
   const isShowcase = user?.role === "showcase";
   const isPaid = Boolean((user as any)?.is_paid) || user?.role === "admin" || isShowcase;
   const status = String((user as any)?.subscription_status || "").toLowerCase();
@@ -222,7 +224,13 @@ export function AccountPage() {
 
         {!loadingPlans && !plans.enabled && (
           <div className="mt-4 rounded-md border border-zinc-200/70 bg-white/40 px-3 py-2 text-sm text-zinc-800 backdrop-blur-md dark:border-zinc-800/60 dark:bg-black/30 dark:text-zinc-200">
-            Billing is not configured. Set Stripe keys in the backend <span className="font-mono">.env</span>.
+            {siteShowcase ? (
+              "Subscriptions are closed while InsidrsAI is a portfolio project. Every account has full access."
+            ) : (
+              <>
+                Billing is not configured. Set Stripe keys in the backend <span className="font-mono">.env</span>.
+              </>
+            )}
           </div>
         )}
 

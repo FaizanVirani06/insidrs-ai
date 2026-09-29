@@ -144,7 +144,7 @@ export function TickerDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="glass-panel p-6">
+      <div data-tour="ticker-header" className="glass-panel p-6">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
             <div className="text-xs font-semibold uppercase tracking-[0.18em] muted">Ticker detail</div>

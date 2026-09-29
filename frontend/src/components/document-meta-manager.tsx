@@ -13,6 +13,7 @@ type RouteTitleRule = {
 const ROUTE_TITLE_RULES: RouteTitleRule[] = [
   { path: "/", title: "Home" },
   { path: "/pricing", title: "Pricing" },
+  { path: "/recruiters", title: "For recruiters" },
   { path: "/legal", title: "Privacy & Terms" },
   { path: "/login", title: "Log in" },
   { path: "/signup", title: "Create account" },

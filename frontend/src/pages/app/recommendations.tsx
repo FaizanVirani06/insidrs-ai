@@ -150,7 +150,7 @@ export function RecommendationsPage() {
           </div>
         </div>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div data-tour="for-you-summary" className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <SummaryCard label="Visible signals" value={filteredEvents.length.toLocaleString()} helper={`${dedupedEvents.length.toLocaleString()} loaded`} />
           <SummaryCard label="Trade side" value={sideLabel} helper={`Lookback ${days} days`} />
           <SummaryCard label="Minimum AI" value={`${minAi} / 10`} helper="Saved in your profile" />

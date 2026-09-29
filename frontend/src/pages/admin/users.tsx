@@ -165,7 +165,7 @@ export function AdminUsersPage() {
 
       {isShowcase ? (
         <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-700 dark:text-cyan-300">
-          Spectator mode is read-only. You can review users here, but access changes are disabled.
+          Read-only demo: customer names, emails, and phone numbers are masked, search is off, and access changes are disabled.
         </div>
       ) : null}
 
@@ -175,7 +175,8 @@ export function AdminUsersPage() {
             className="input h-11"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search by login email, name, contact email, or phone…"
+            disabled={isShowcase}
+            placeholder={isShowcase ? "Search is disabled in the demo" : "Search by login email, name, contact email, or phone…"}
           />
 
           <label className="flex items-center gap-3 rounded-2xl border border-zinc-200/70 bg-white/50 px-4 py-3 text-sm dark:border-zinc-800/60 dark:bg-black/20">

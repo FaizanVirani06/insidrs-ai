@@ -4,6 +4,7 @@ from statistics import mean
 from typing import Any, List, Tuple, Optional
 
 from insider_platform.models import EventKey
+from insider_platform.compute.ticker_validation import get_validation_status
 from insider_platform.util.time import utcnow_iso
 
 
@@ -23,7 +24,7 @@ def compute_trend_for_event(conn: Any, event_key: EventKey) -> None:
     """
     ev = conn.execute(
         """
-        SELECT issuer_cik, event_trade_date, has_buy, has_sell, buy_trade_date, sell_trade_date
+        SELECT issuer_cik, ticker, event_trade_date, has_buy, has_sell, buy_trade_date, sell_trade_date
         FROM insider_events
         WHERE issuer_cik=? AND owner_key=? AND accession_number=?
         """,
@@ -31,6 +32,10 @@ def compute_trend_for_event(conn: Any, event_key: EventKey) -> None:
     ).fetchone()
     if ev is None:
         raise RuntimeError(f"Event not found: {event_key}")
+
+    if get_validation_status(conn, event_key.issuer_cik, ev.get("ticker")) == "invalid":
+        _set_trend_missing(conn, event_key, reason="ticker_validation_failed")
+        return
 
     # Prefer the earliest open-market trade date when present. This avoids anchoring
     # the trend on non-open-market rows (e.g., grants, exercises, withholding) that

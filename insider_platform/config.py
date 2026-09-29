@@ -184,6 +184,26 @@ class Config:
     # If set to 1, users are treated as paid even without an active Stripe subscription.
     BILLING_DEV_BYPASS: bool = _env_bool("BILLING_DEV_BYPASS", False) is True
 
+    # X/Twitter posting (admin tool)
+    X_API_KEY: str | None = os.environ.get("X_API_KEY")
+    X_API_SECRET: str | None = os.environ.get("X_API_SECRET")
+    X_ACCESS_TOKEN: str | None = os.environ.get("X_ACCESS_TOKEN")
+    X_ACCESS_TOKEN_SECRET: str | None = os.environ.get("X_ACCESS_TOKEN_SECRET")
+    X_POSTING_ENABLED: bool = _env_bool("X_POSTING_ENABLED", False) is True
+    X_HANDLE: str | None = os.environ.get("X_HANDLE")
+
+    # Automatic trade plan generation.
+    # Internal AI ratings are 1-10; the UI displays these as 1-100.
+    TRADE_PLAN_MIN_BUY_RATING: float = float(os.environ.get("TRADE_PLAN_MIN_BUY_RATING", "6.0"))
+
+    # Portfolio showcase mode (default on).
+    # - Paywall off: every signed-in user gets full access.
+    # - Stripe checkout closed.
+    # - Public one-click demo login (read-only showcase account, PII masked).
+    # - Leaderboard anchored to the last date with stored price data (market data is frozen).
+    # Set SHOWCASE_MODE=0 to restore normal paid-product behavior.
+    SHOWCASE_MODE: bool = _env_bool("SHOWCASE_MODE", True) is True
+
 
 def load_config() -> Config:
     return Config()

@@ -122,6 +122,10 @@ def require_subscription(
     if getattr(cfg, "BILLING_DEV_BYPASS", False):
         return user
 
+    # Showcase mode: the paywall is off for everyone.
+    if getattr(cfg, "SHOWCASE_MODE", False):
+        return user
+
     status = (user.get("subscription_status") or "").strip().lower()
     if status in ("active", "trialing"):
         return user

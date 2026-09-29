@@ -5,7 +5,10 @@ import { RequireAdminViewer, RequireAuth, RequireSubscription } from "@/componen
 import { RootLayout } from "@/pages/root-layout";
 import { HomePage } from "@/pages/home";
 import { PricingPage } from "@/pages/pricing";
+import { RecruitersPage } from "@/pages/recruiters";
 import { LegalPage } from "@/pages/legal";
+import { PrivacyPage } from "@/pages/privacy";
+import { TermsPage } from "@/pages/terms";
 import { LoginPage } from "@/pages/login";
 import { SignupPage } from "@/pages/signup";
 
@@ -23,6 +26,7 @@ import { ProfilePage } from "@/pages/app/profile";
 import { RecommendationsPage } from "@/pages/app/recommendations";
 import { TickerDetailPage } from "@/pages/app/ticker-detail";
 import { TickersPage } from "@/pages/app/tickers";
+import { AdminSocialPage } from "@/pages/app/admin-social";
 import { AdminUsersPage } from "@/pages/admin/users";
 
 function NotFound() {
@@ -40,9 +44,12 @@ export function App() {
       <Route element={<RootLayout />}>
         <Route index element={<HomePage />} />
         <Route path="pricing" element={<PricingPage />} />
+        <Route path="recruiters" element={<RecruitersPage />} />
+        <Route path="recruiter" element={<Navigate to="/recruiters" replace />} />
+        <Route path="tour" element={<Navigate to="/recruiters" replace />} />
         <Route path="legal" element={<LegalPage />} />
-        <Route path="privacy" element={<Navigate to="/legal" replace />} />
-        <Route path="terms" element={<Navigate to="/legal" replace />} />
+        <Route path="privacy" element={<PrivacyPage />} />
+        <Route path="terms" element={<TermsPage />} />
         <Route path="login" element={<LoginPage />} />
         <Route path="signup" element={<SignupPage />} />
 
@@ -77,6 +84,7 @@ export function App() {
             <Route path="admin/feedback" element={<AdminFeedbackPage />} />
             <Route path="admin/support" element={<AdminSupportPage />} />
             <Route path="admin/settings" element={<AdminSettingsPage />} />
+            <Route path="admin/social" element={<AdminSocialPage />} />
           </Route>
         </Route>
 

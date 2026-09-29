@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
+from typing import Any
 
 from insider_platform.config import Config
 from insider_platform.eodhd.client import fetch_eod_prices, resolve_symbol
+from insider_platform.compute.ticker_validation import validate_issuer_ticker
 from insider_platform.util.time import utcnow_iso
 
 
@@ -21,6 +23,13 @@ def fetch_and_store_prices_for_issuer(conn: Any, cfg: Config, issuer_cik: str) -
 
     ticker = row["current_ticker"]
     symbol = resolve_symbol(cfg.EODHD_BASE_URL, cfg.EODHD_API_KEY, ticker)
+    validation = validate_issuer_ticker(conn, cfg, issuer_cik=issuer_cik, ticker=ticker, eodhd_symbol=symbol)
+    if validation.status == "invalid":
+        _debug(
+            "Skipping price fetch because ticker validation failed: "
+            f"issuer_cik={issuer_cik} ticker={ticker} symbol={symbol} reason={validation.reason}"
+        )
+        return
 
     end = datetime.now(timezone.utc).date().isoformat()
 

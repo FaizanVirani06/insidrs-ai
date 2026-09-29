@@ -9,6 +9,8 @@ type AuthContextValue = {
   loading: boolean;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
+  /** Sign in as the read-only showcase account (showcase mode only). Returns the user. */
+  loginAsDemo: () => Promise<User>;
   setUser: (u: User | null) => void;
 };
 
@@ -96,6 +98,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [navigate, setUser]);
 
+  const loginAsDemo = React.useCallback(async () => {
+    const res = await apiFetch("/auth/demo-login", {
+      method: "POST",
+      headers: { "cache-control": "no-cache" },
+    });
+    if (!res.ok) {
+      throw new Error(res.status === 404 ? "The demo account is not enabled." : "Could not start the demo. Please try again.");
+    }
+    const data = await res.json();
+    const u = data?.user as User;
+    setUser(u);
+    return u;
+  }, [setUser]);
+
   // Initial load: check once
   React.useEffect(() => {
     refresh();
@@ -117,8 +133,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
 
   const value = React.useMemo<AuthContextValue>(
-    () => ({ user, loading, refresh, logout, setUser }),
-    [user, loading, refresh, logout, setUser]
+    () => ({ user, loading, refresh, logout, loginAsDemo, setUser }),
+    [user, loading, refresh, logout, loginAsDemo, setUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

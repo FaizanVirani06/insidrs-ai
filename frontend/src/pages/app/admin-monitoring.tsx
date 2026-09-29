@@ -168,7 +168,7 @@ export function AdminMonitoringPage() {
       )}
 
       {/* Summary cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div data-tour="monitoring-overview" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="glass-card p-4">
           <div className="text-xs uppercase tracking-wide muted">Pending</div>
           <div className="mt-1 text-2xl font-semibold">{pending.toLocaleString()}</div>

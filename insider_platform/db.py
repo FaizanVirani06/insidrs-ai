@@ -306,6 +306,29 @@ def _migrate(conn: Any) -> None:
             if not _has_column(conn, "event_outcomes", col):
                 conn.execute(f"ALTER TABLE event_outcomes ADD COLUMN {col} {ctype}")
 
+    # --- ticker validation cache ---
+    if not _table_exists(conn, "issuer_ticker_validation"):
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS issuer_ticker_validation (
+                issuer_cik TEXT NOT NULL,
+                ticker TEXT NOT NULL,
+                eodhd_symbol TEXT,
+                status TEXT NOT NULL CHECK (status IN ('valid','invalid','unknown')),
+                issuer_name TEXT,
+                provider_name TEXT,
+                provider_code TEXT,
+                provider_exchange TEXT,
+                match_score DOUBLE PRECISION,
+                reason TEXT,
+                checked_at TEXT NOT NULL,
+                PRIMARY KEY (issuer_cik, ticker)
+            )
+            """
+        )
+    if _table_exists(conn, "issuer_ticker_validation"):
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ticker_validation_status ON issuer_ticker_validation (status, checked_at)")
+
     # --- users: billing / subscription columns (Stripe) ---
     if _table_exists(conn, "users") and _has_column(conn, "users", "user_id"):
         user_cols_to_add = [

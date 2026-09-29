@@ -46,7 +46,8 @@ function narrativeItems(value: unknown): string[] {
 }
 
 function tradePlanHasUsefulContent(plan: any): boolean {
-  if (!plan || !plan.eligible) return false;
+  if (!plan) return false;
+  if (!plan.eligible) return hasText(plan.reason);
   const trims = Array.isArray(plan.trims) ? plan.trims.filter((item: any) => item && toNumber(item?.price) !== null) : [];
   return Boolean(
     toNumber(plan.entry?.price) !== null ||
@@ -61,6 +62,8 @@ export function EventDetailPage() {
   const params = useParams<{ issuer_cik: string; owner_key: string; accession_number: string }>();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  // The read-only showcase account may inspect model metadata and the exact AI input package.
+  const canViewAiInternals = isAdmin || user?.role === "showcase";
 
   const issuerCik = decodeURIComponent(String(params?.issuer_cik ?? ""));
   const ownerKey = decodeURIComponent(String(params?.owner_key ?? ""));
@@ -361,6 +364,7 @@ export function EventDetailPage() {
       </div>
 
       <div
+        data-tour="event-summary"
         className={[
           "grid grid-cols-1 gap-3",
           summaryCards.length >= 3 ? "xl:grid-cols-3" : summaryCards.length === 2 ? "md:grid-cols-2" : "grid-cols-1",
@@ -374,14 +378,24 @@ export function EventDetailPage() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-sm font-semibold">Trade plan</div>
-              <div className="text-xs muted">Technicals-based levels: stop, trims, and take-profit.</div>
+              <div className="text-xs muted">
+                {tradePlan?.eligible
+                  ? "Technicals-based levels: stop, trims, and take-profit."
+                  : "Automatic trade plan status."}
+              </div>
             </div>
-            <span className="badge">Technicals</span>
+            <span className="badge">{tradePlan?.eligible ? "Technicals" : "Not generated"}</span>
           </div>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-2">{tradePlanCards}</div>
+          {tradePlan?.eligible ? (
+            <div className="mt-4 grid gap-3 md:grid-cols-2">{tradePlanCards}</div>
+          ) : (
+            <div className="mt-4 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
+              {String(tradePlan?.reason || "Trade plan was not generated.")}
+            </div>
+          )}
 
-          {tradePlanNotes.length > 0 ? (
+          {tradePlan?.eligible && tradePlanNotes.length > 0 ? (
             <div className="mt-3 glass-card p-3">
               <div className="text-xs font-semibold muted">Notes</div>
               <ul className="mt-2 list-disc space-y-1 pl-5 text-sm muted">
@@ -395,12 +409,12 @@ export function EventDetailPage() {
       ) : null}
 
       {showAiExplanation ? (
-        <div className="glass-card p-4">
+        <div data-tour="ai-explanation" className="glass-card p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-sm font-semibold">AI explanation</div>
               <div className="text-xs muted">
-                {isAdmin && detail.ai_latest?.model_id
+                {canViewAiInternals && detail.ai_latest?.model_id
                   ? `${detail.ai_latest.model_id}${detail.ai_latest.prompt_version ? ` • ${detail.ai_latest.prompt_version}` : ""}`
                   : "Event-level AI summary"}
               </div>
@@ -466,11 +480,11 @@ export function EventDetailPage() {
         </div>
       ) : null}
 
-      {isAdmin && detail.ai_latest?.input ? (
+      {canViewAiInternals && detail.ai_latest?.input ? (
         <div className="glass-card p-4">
           <div className="mb-4">
             <div className="text-sm font-semibold">AI inputs</div>
-            <div className="text-xs muted">Admin-only structured view of the exact data package used for this run.</div>
+            <div className="text-xs muted">Structured view of the exact data package the model received for this run (admin and demo only).</div>
           </div>
           <AdminAiInputsPanel input={detail.ai_latest.input} />
         </div>

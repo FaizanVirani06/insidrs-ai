@@ -86,3 +86,13 @@ export type EventDetail = {
 };
 
 export type PricePoint = { date: string; adj_close: number };
+
+export type XPostChartPayload = {
+  ticker: string;
+  dates: string[];
+  prices: number[];
+  signal_date: string;
+  signal_price: number;
+  latest_price: number;
+  return_pct: number;
+};

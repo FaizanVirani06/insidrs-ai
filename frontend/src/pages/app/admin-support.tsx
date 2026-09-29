@@ -165,7 +165,7 @@ export function AdminSupportPage() {
 
       {isShowcase ? (
         <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-700 dark:text-cyan-300">
-          Spectator mode is read-only. You can review support threads here, but replying is disabled.
+          Read-only demo: customer emails and phone numbers are masked, and replying is disabled.
         </div>
       ) : null}
 

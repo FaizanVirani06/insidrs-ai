@@ -1,7 +1,9 @@
 import * as React from "react";
 import { Link, useNavigate } from "react-router-dom";
 
+import { DemoButton } from "@/components/demo-button";
 import { apiFetch } from "@/lib/api";
+import { useSiteStatus } from "@/lib/site-status";
 
 type PricingDisplay = {
   currency: string;
@@ -21,6 +23,7 @@ type CheckoutPlan = "monthly" | "yearly" | "trial";
 
 export function PricingPage() {
   const navigate = useNavigate();
+  const { showcase_mode: showcase } = useSiteStatus();
 
   const [loadingPlan, setLoadingPlan] = React.useState<CheckoutPlan | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -123,13 +126,30 @@ export function PricingPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-10">
+      {showcase ? (
+        <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-6">
+          <div className="text-lg font-semibold text-zinc-50">Subscriptions are closed</div>
+          <p className="mt-2 text-sm leading-6 text-zinc-300">
+            InsidrsAI is a portfolio project now, so the whole app is free to explore with the read-only demo account.
+            This page stays up to show the Stripe integration: Checkout for monthly and yearly plans, a 7-day free
+            trial, the Customer Portal, and signed webhooks that keep subscription state in sync.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <DemoButton className="btn-primary h-10 px-5">Open the demo</DemoButton>
+            <Link to="/recruiters" className="btn-secondary h-10 px-5">
+              Recruiter tour
+            </Link>
+          </div>
+        </div>
+      ) : null}
+
       <div className="text-center">
         <div className="badge">Simple pricing</div>
         <h1 className="mt-5 text-4xl font-bold tracking-tight">Unlock the dashboard and AI insights</h1>
         <p className="mt-4 text-lg muted">Choose monthly, yearly, or start with a free trial. Cancel anytime.</p>
       </div>
 
-      <div className="glass-panel relative overflow-hidden p-8 sm:p-10">
+      <div data-tour="pricing-card" className="glass-panel relative overflow-hidden p-8 sm:p-10">
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-purple-500/10 via-transparent to-cyan-500/10" />
 
         <div className="relative grid gap-8 md:grid-cols-2 md:items-start">
@@ -172,7 +192,9 @@ export function PricingPage() {
             >
               {loadingPlan === billingCadence
                 ? "Redirecting…"
-                : activeAvailable
+                : showcase
+                  ? "Subscriptions closed"
+                  : activeAvailable
                   ? billingCadence === "monthly" && trialAvailable
                     ? "Subscribe monthly now"
                     : "Subscribe"
