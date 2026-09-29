@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* main.tsx pins <html class="dark">; key dark: variants off that class, not the visitor's OS setting. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer theme, base, components, utilities;
 
 @theme inline {
@@ -99,5 +102,29 @@
 
   .link {
     @apply text-purple-600 hover:text-purple-700 dark:text-purple-300 dark:hover:text-purple-200;
+  }
+}
+
+/* Guided tour: outline the element the current tour stop is talking about. */
+.tour-target {
+  outline: 2px solid rgb(34 211 238 / 0.85);
+  outline-offset: 6px;
+  scroll-margin-top: 140px;
+  animation: tour-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes tour-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(34 211 238 / 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 12px rgb(34 211 238 / 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-target {
+    animation: none;
   }
 }

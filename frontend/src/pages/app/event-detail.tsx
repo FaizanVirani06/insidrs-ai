@@ -62,6 +62,8 @@ export function EventDetailPage() {
   const params = useParams<{ issuer_cik: string; owner_key: string; accession_number: string }>();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  // The read-only showcase account may inspect model metadata and the exact AI input package.
+  const canViewAiInternals = isAdmin || user?.role === "showcase";
 
   const issuerCik = decodeURIComponent(String(params?.issuer_cik ?? ""));
   const ownerKey = decodeURIComponent(String(params?.owner_key ?? ""));
@@ -362,6 +364,7 @@ export function EventDetailPage() {
       </div>
 
       <div
+        data-tour="event-summary"
         className={[
           "grid grid-cols-1 gap-3",
           summaryCards.length >= 3 ? "xl:grid-cols-3" : summaryCards.length === 2 ? "md:grid-cols-2" : "grid-cols-1",
@@ -406,12 +409,12 @@ export function EventDetailPage() {
       ) : null}
 
       {showAiExplanation ? (
-        <div className="glass-card p-4">
+        <div data-tour="ai-explanation" className="glass-card p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-sm font-semibold">AI explanation</div>
               <div className="text-xs muted">
-                {isAdmin && detail.ai_latest?.model_id
+                {canViewAiInternals && detail.ai_latest?.model_id
                   ? `${detail.ai_latest.model_id}${detail.ai_latest.prompt_version ? ` • ${detail.ai_latest.prompt_version}` : ""}`
                   : "Event-level AI summary"}
               </div>
@@ -477,11 +480,11 @@ export function EventDetailPage() {
         </div>
       ) : null}
 
-      {isAdmin && detail.ai_latest?.input ? (
+      {canViewAiInternals && detail.ai_latest?.input ? (
         <div className="glass-card p-4">
           <div className="mb-4">
             <div className="text-sm font-semibold">AI inputs</div>
-            <div className="text-xs muted">Admin-only structured view of the exact data package used for this run.</div>
+            <div className="text-xs muted">Structured view of the exact data package the model received for this run (admin and demo only).</div>
           </div>
           <AdminAiInputsPanel input={detail.ai_latest.input} />
         </div>

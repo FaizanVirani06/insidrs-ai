@@ -2,8 +2,10 @@ import { Link } from "react-router-dom";
 import * as React from "react";
 
 import { useAuth } from "@/components/auth-provider";
+import { DemoButton } from "@/components/demo-button";
 import { apiFetch } from "@/lib/api";
 import { fmtDate, fmtUsd } from "@/lib/format";
+import { fmtLongDate, useSiteStatus } from "@/lib/site-status";
 
 function fmtReturn(value: unknown): string {
   const n = Number(value);
@@ -30,23 +32,32 @@ function insiderLine(row: any): string {
 }
 
 function BestPerformingPreview({ user }: { user: any }) {
+  const status = useSiteStatus();
+  const showcase = status.showcase_mode;
   const [rows, setRows] = React.useState<any[]>([]);
+  const [asOf, setAsOf] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [expanded, setExpanded] = React.useState(false);
-  const fullAccess = hasFullLeaderboardAccess(user);
+  const fullAccess = showcase || hasFullLeaderboardAccess(user);
   const rowLimit = fullAccess ? 20 : 5;
   const visibleRows = fullAccess && expanded ? rows : rows.slice(0, 5);
+  const dataDate = asOf || status.market_data_as_of;
 
   React.useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    const path = fullAccess
-      ? "/signals/best-performing?days=60&limit=20"
-      : "/public/signals/best-performing?days=60&limit=5";
+    // Showcase mode serves the full top 20 publicly, so no session is needed.
+    const path = showcase
+      ? "/public/signals/best-performing?days=60&limit=20"
+      : fullAccess
+        ? "/signals/best-performing?days=60&limit=20"
+        : "/public/signals/best-performing?days=60&limit=5";
     apiFetch(path)
       .then((r) => (r.ok ? r.json() : { results: [] }))
       .then((j) => {
-        if (!cancelled) setRows((Array.isArray(j?.results) ? j.results : []).slice(0, rowLimit));
+        if (cancelled) return;
+        setRows((Array.isArray(j?.results) ? j.results : []).slice(0, rowLimit));
+        setAsOf(typeof j?.as_of === "string" ? j.as_of : null);
       })
       .catch(() => {
         if (!cancelled) setRows([]);
@@ -57,32 +68,55 @@ function BestPerformingPreview({ user }: { user: any }) {
     return () => {
       cancelled = true;
     };
-  }, [fullAccess, rowLimit]);
+  }, [showcase, fullAccess, rowLimit]);
 
   React.useEffect(() => {
     setExpanded(false);
   }, [fullAccess]);
 
   return (
-    <section className="relative overflow-hidden rounded-[2rem] border border-emerald-500/20 bg-zinc-950/70 p-4 shadow-2xl shadow-emerald-500/10 backdrop-blur-xl sm:p-5">
+    <section
+      data-tour="leaderboard"
+      className="relative overflow-hidden rounded-[2rem] border border-emerald-500/20 bg-zinc-950/70 p-4 shadow-2xl shadow-emerald-500/10 backdrop-blur-xl sm:p-5"
+    >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.16),transparent_34%),radial-gradient(circle_at_top_right,rgba(34,211,238,0.14),transparent_32%)]" />
       <div className="relative grid gap-5 lg:grid-cols-[minmax(0,0.72fr)_minmax(420px,1fr)] lg:items-center">
         <div className="px-1 py-1 sm:px-3">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Live preview</div>
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
+            {showcase ? `Snapshot${dataDate ? ` · prices through ${fmtLongDate(dataDate)}` : ""}` : "Live preview"}
+          </div>
           <h2 className="mt-3 max-w-2xl text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">
             The insider signals that have moved the most.
           </h2>
-          <p className="mt-4 max-w-xl text-sm leading-7 text-zinc-300">
-            See how recent insider filings performed after they became public, then open the app for the full feed,
-            context, filters, and signal details.
-          </p>
+          {showcase ? (
+            <p className="mt-4 max-w-xl text-sm leading-7 text-zinc-300">
+              How insider filings from the 60 days before the data freeze performed after they became public. Market
+              data stopped updating when InsidrsAI became a portfolio project, so this board is a snapshot of that day.
+            </p>
+          ) : (
+            <p className="mt-4 max-w-xl text-sm leading-7 text-zinc-300">
+              See how recent insider filings performed after they became public, then open the app for the full feed,
+              context, filters, and signal details.
+            </p>
+          )}
           <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-            <Link to="/signup" className="btn-primary h-11 px-6 text-sm">
-              Start free trial
-            </Link>
-            <Link to="/pricing" className="btn-secondary h-11 px-6 text-sm">
-              View plans
-            </Link>
+            {showcase ? (
+              <>
+                <Link to="/recruiters" className="btn-primary h-11 px-6 text-sm">
+                  Take the guided tour
+                </Link>
+                <DemoButton />
+              </>
+            ) : (
+              <>
+                <Link to="/signup" className="btn-primary h-11 px-6 text-sm">
+                  Start free trial
+                </Link>
+                <Link to="/pricing" className="btn-secondary h-11 px-6 text-sm">
+                  View plans
+                </Link>
+              </>
+            )}
           </div>
         </div>
 
@@ -90,7 +124,9 @@ function BestPerformingPreview({ user }: { user: any }) {
           <div className="flex items-center justify-between border-b border-zinc-800/80 px-4 py-3">
             <div>
               <div className="text-sm font-semibold text-zinc-100">Best performing signals</div>
-              <div className="text-xs text-zinc-500">Ranked by return since filing, last 60 days</div>
+              <div className="text-xs text-zinc-500">
+                Ranked by return since filing, {showcase && dataDate ? `60 days to ${fmtLongDate(dataDate)}` : "last 60 days"}
+              </div>
             </div>
             <div className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
               {fullAccess ? "Top 20 available" : "Preview"}
@@ -100,7 +136,9 @@ function BestPerformingPreview({ user }: { user: any }) {
           {loading ? (
             <div className="p-5 text-sm text-zinc-400">Loading leaderboard...</div>
           ) : rows.length === 0 ? (
-            <div className="p-5 text-sm text-zinc-400">Leaderboard data is warming up.</div>
+            <div className="p-5 text-sm text-zinc-400">
+              {showcase ? "No priced filings in this window." : "Leaderboard data is warming up."}
+            </div>
           ) : (
             <div className="relative divide-y divide-zinc-800/80">
               {visibleRows.map((row, idx) => (
@@ -215,6 +253,7 @@ function StepCard({ number, title, description }: { number: string; title: strin
 
 export function HomePage() {
   const { user } = useAuth();
+  const { showcase_mode: showcase } = useSiteStatus();
   const appTarget = "/app";
 
   return (
@@ -242,12 +281,23 @@ export function HomePage() {
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link to={appTarget} className="btn-primary h-11 px-6 text-sm">
-                Open app
-              </Link>
-              <Link to="/pricing" className="btn-secondary h-11 px-6 text-sm">
-                View pricing
-              </Link>
+              {showcase ? (
+                <>
+                  <DemoButton className="btn-primary h-11 px-6 text-sm">Open the demo</DemoButton>
+                  <Link to="/recruiters" className="btn-secondary h-11 px-6 text-sm">
+                    For recruiters
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Link to={appTarget} className="btn-primary h-11 px-6 text-sm">
+                    Open app
+                  </Link>
+                  <Link to="/pricing" className="btn-secondary h-11 px-6 text-sm">
+                    View pricing
+                  </Link>
+                </>
+              )}
             </div>
 
             <div className="mt-8 flex flex-wrap gap-3 text-sm text-zinc-400">
@@ -361,21 +411,41 @@ export function HomePage() {
       <section className="relative overflow-hidden rounded-[2rem] border border-purple-500/20 bg-gradient-to-r from-purple-500/12 via-zinc-950/80 to-cyan-500/12 p-8 shadow-lg shadow-purple-500/10 backdrop-blur-xl">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_left_center,rgba(168,85,247,0.2),transparent_38%),radial-gradient(circle_at_right_center,rgba(34,211,238,0.16),transparent_36%)]" />
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-          <div className="max-w-2xl">
-            <div className="text-2xl font-semibold text-zinc-100">Start exploring insider activity today</div>
-            <p className="mt-2 text-sm leading-7 text-zinc-300">
-              Browse the app, save your preferences, and let the platform bring stronger signals to the top.
-              {user ? " Your workspace is ready." : " Open the app to sign in or create your account."}
-            </p>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Link to={appTarget} className="btn-primary h-11 px-6">
-              Go to app
-            </Link>
-            <Link to="/pricing" className="btn-secondary h-11 px-6">
-              Compare plans
-            </Link>
-          </div>
+          {showcase ? (
+            <>
+              <div className="max-w-2xl">
+                <div className="text-2xl font-semibold text-zinc-100">Curious how it&apos;s built?</div>
+                <p className="mt-2 text-sm leading-7 text-zinc-300">
+                  Take the 3-minute guided tour for the engineering behind each page, or open the read-only demo and
+                  look around on your own. No sign-up needed.
+                </p>
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Link to="/recruiters" className="btn-primary h-11 px-6">
+                  Take the guided tour
+                </Link>
+                <DemoButton className="btn-secondary h-11 px-6">Explore the demo</DemoButton>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="max-w-2xl">
+                <div className="text-2xl font-semibold text-zinc-100">Start exploring insider activity today</div>
+                <p className="mt-2 text-sm leading-7 text-zinc-300">
+                  Browse the app, save your preferences, and let the platform bring stronger signals to the top.
+                  {user ? " Your workspace is ready." : " Open the app to sign in or create your account."}
+                </p>
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Link to={appTarget} className="btn-primary h-11 px-6">
+                  Go to app
+                </Link>
+                <Link to="/pricing" className="btn-secondary h-11 px-6">
+                  Compare plans
+                </Link>
+              </div>
+            </>
+          )}
         </div>
       </section>
     </div>

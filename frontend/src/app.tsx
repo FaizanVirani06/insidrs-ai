@@ -5,6 +5,7 @@ import { RequireAdminViewer, RequireAuth, RequireSubscription } from "@/componen
 import { RootLayout } from "@/pages/root-layout";
 import { HomePage } from "@/pages/home";
 import { PricingPage } from "@/pages/pricing";
+import { RecruitersPage } from "@/pages/recruiters";
 import { LegalPage } from "@/pages/legal";
 import { PrivacyPage } from "@/pages/privacy";
 import { TermsPage } from "@/pages/terms";
@@ -43,6 +44,9 @@ export function App() {
       <Route element={<RootLayout />}>
         <Route index element={<HomePage />} />
         <Route path="pricing" element={<PricingPage />} />
+        <Route path="recruiters" element={<RecruitersPage />} />
+        <Route path="recruiter" element={<Navigate to="/recruiters" replace />} />
+        <Route path="tour" element={<Navigate to="/recruiters" replace />} />
         <Route path="legal" element={<LegalPage />} />
         <Route path="privacy" element={<PrivacyPage />} />
         <Route path="terms" element={<TermsPage />} />

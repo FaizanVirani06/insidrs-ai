@@ -1,18 +1,49 @@
-# Insider Platform
+# InsidrsAI
 
-A full-stack insider trading analysis dashboard.
+A full-stack platform that ingests SEC Form 4 insider-trading filings, measures how those trades performed
+afterward, and uses an LLM to rate each signal. It ran as a paid subscription product for 100+ users and is now
+kept online as a **portfolio showcase**.
 
-- **Backend:** FastAPI + Postgres
-- **Frontend:** Vite + React + React Router (static SPA)
-- **Payments:** Stripe subscriptions (Checkout + Customer Portal + Webhooks)
-- **Workers:** background ingestion + compute jobs
+- **Live site:** [insidrsai.com](https://insidrsai.com)
+- **Recruiters:** [insidrsai.com/recruiters](https://insidrsai.com/recruiters) has a 3-minute guided tour of the
+  real app. It signs you into a read-only demo account; no sign-up needed.
+
+> **Status:** market data is frozen at the last sync (the market-data subscription is paused), and subscriptions
+> are closed. Everything on the site is real production data as of that date.
+
+## What's inside
+
+- **Ingestion:** a poller on EDGAR's live Form 4 feed feeds a Postgres-backed job queue (dedupe keys, priorities,
+  retries). Separate API and compute workers parse filing XML into one event per insider per filing.
+- **Signal research:** 60/180 trading-day forward returns from the first tradeable day after each filing went
+  public, net of SPY. These roll up into per-insider win rates. Features include cluster buying (2+ insiders in 14
+  days), pre-trade momentum, 52-week range position, and 50/200-day moving averages.
+- **AI rating:** Gemini receives a structured feature package (never raw filings) and must return strict JSON
+  validated against a versioned schema, with one repair attempt on failure. Inputs are hashed so unchanged events
+  are never re-scored.
+- **Product:** React/TypeScript SPA, cookie-based JWT auth, Stripe subscriptions (Checkout, trials, Customer
+  Portal, signed idempotent webhooks), admin monitoring, a support inbox, and a read-only showcase role.
+- **Deploy:** Docker Compose on a Linux VM (Postgres, FastAPI, two worker types, and Caddy for automatic HTTPS).
+
+## Showcase mode
+
+`SHOWCASE_MODE` (default `1`) turns the site into a portfolio piece:
+
+- The paywall is off, and Stripe checkout is closed. The Customer Portal still works for existing subscribers.
+- `POST /auth/demo-login` signs visitors into the read-only showcase account, creating it if needed. Admin pages
+  mask customer names, emails, phones, and Stripe IDs for that account. Job error strings are scrubbed of
+  credentials for all viewers.
+- The leaderboard's 60-day window is anchored on the last date with stored prices instead of today.
+- The SPA shows a portfolio banner, the `/recruiters` page, and the guided tour.
+
+Set `SHOWCASE_MODE=0` to restore normal paid-product behavior.
 
 ## Project layout
 
-- `insider_platform/` – FastAPI app, DB layer, SEC ingestion, analytics, billing
-- `scripts/` – run scripts + init DB
-- `frontend/` – Vite/React SPA
-- `deploy/` – production reverse proxy config (Caddy) + Dockerfile
+- `insider_platform/`: FastAPI app, DB layer, SEC ingestion, analytics, AI, billing
+- `scripts/`: run scripts + init DB
+- `frontend/`: Vite/React SPA (the tour lives in `src/components/tour/`, the recruiters page in `src/pages/recruiters.tsx`)
+- `deploy/`: production reverse proxy config (Caddy) + Dockerfile
 
 ## Quick start (local dev)
 

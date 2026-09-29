@@ -2,6 +2,8 @@ import * as React from "react";
 import { NavLink, Outlet } from "react-router-dom";
 
 import { useAuth } from "@/components/auth-provider";
+import { useTour } from "@/components/tour/tour-provider";
+import { useSiteStatus } from "@/lib/site-status";
 
 function NavItem({
   to,
@@ -39,6 +41,8 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 export function AppShell() {
   const { user } = useAuth();
+  const tour = useTour();
+  const { showcase_mode: siteShowcase } = useSiteStatus();
   const isAdmin = user?.role === "admin";
   const isShowcase = user?.role === "showcase";
   const canViewAdmin = Boolean(user?.can_view_admin) || isAdmin || isShowcase;
@@ -52,6 +56,18 @@ export function AppShell() {
           <div className="mt-1 text-sm muted">Signals, profiles, and account settings in one place.</div>
         </div>
 
+        {siteShowcase && !tour.active ? (
+          <button
+            type="button"
+            onClick={() => void tour.start(0)}
+            disabled={tour.starting}
+            className="mt-4 w-full rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-3 text-left transition hover:border-cyan-400/60 hover:bg-cyan-500/15"
+          >
+            <div className="text-sm font-medium text-cyan-100">{tour.starting ? "Starting…" : "Take the guided tour"}</div>
+            <div className="mt-0.5 text-xs text-cyan-200/70">How each page works, in about 3 minutes</div>
+          </button>
+        ) : null}
+
         <nav className="mt-4 space-y-4">
           <div className="space-y-2">
             <SectionLabel>Main</SectionLabel>
@@ -59,7 +75,7 @@ export function AppShell() {
               <NavItem to="/app/for-you" label="For you" subtitle="Saved signal feed" />
               <NavItem to="/app/tickers" label="Tickers" subtitle="Browse company activity" />
               <NavItem to="/app/events" label="Events" subtitle="Recent insider filings" />
-              <NavItem to="/app/feedback" label="Feedback" subtitle="Tell us what to improve" />
+              {!siteShowcase ? <NavItem to="/app/feedback" label="Feedback" subtitle="Tell us what to improve" /> : null}
             </div>
           </div>
 
@@ -98,9 +114,9 @@ export function AppShell() {
             <span className="mt-3 inline-flex rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-xs font-medium text-cyan-700 dark:text-cyan-300">
               Showcase access
             </span>
-          ) : (user as any)?.is_paid ? (
+          ) : (user as any)?.is_paid || siteShowcase ? (
             <span className="mt-3 inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-              Subscription active
+              {(user as any)?.is_paid ? "Subscription active" : "Full access"}
             </span>
           ) : (
             <span className="mt-3 inline-flex rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 dark:text-amber-300">

@@ -3,11 +3,14 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
+import { DemoButton } from "@/components/demo-button";
+import { useSiteStatus } from "@/lib/site-status";
 
 export function SignupPage() {
   const navigate = useNavigate();
   const [sp] = useSearchParams();
   const { setUser } = useAuth();
+  const { showcase_mode: showcase } = useSiteStatus();
 
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -51,7 +54,7 @@ export function SignupPage() {
       const user = (data?.user ?? null) as any;
       setUser(user);
 
-      const isPaid = Boolean(user?.is_paid) || user?.role === "admin" || user?.role === "showcase";
+      const isPaid = showcase || Boolean(user?.is_paid) || user?.role === "admin" || user?.role === "showcase";
       const next = sp.get("next");
 
       if (next) {
@@ -70,9 +73,25 @@ export function SignupPage() {
 
   return (
     <div className="mx-auto mt-16 max-w-md">
+      {showcase ? (
+        <div className="mb-4 rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-5 text-sm">
+          <div className="font-semibold text-zinc-50">No sign-up needed</div>
+          <p className="mt-1 text-zinc-300">
+            InsidrsAI is a portfolio project now. The read-only demo account opens the whole app.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <DemoButton className="btn-primary h-9 px-4">Use the demo account</DemoButton>
+            <Link to="/recruiters" className="btn-ghost h-9 px-3">
+              Recruiter tour
+            </Link>
+          </div>
+        </div>
+      ) : null}
       <div className="glass-card p-6">
         <h1 className="text-xl font-semibold">Create your account</h1>
-        <p className="mt-1 text-sm muted">Sign up, then subscribe to unlock the insiders dashboard.</p>
+        <p className="mt-1 text-sm muted">
+          {showcase ? "You can still create a personal account if you want to save preferences." : "Sign up, then subscribe to unlock the insiders dashboard."}
+        </p>
 
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
           <div>

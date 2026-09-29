@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import base64
 import json
+import re
+import secrets
+import threading
+import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -81,6 +85,76 @@ def _on_startup() -> None:
 @app.get("/health")
 def health() -> Dict[str, Any]:
     return {"status": "ok"}
+
+
+# -----------------------------
+# Small in-process cache for public, read-heavy endpoints
+# -----------------------------
+
+_CACHE_TTL_SECONDS = 600.0
+_cache_lock = threading.Lock()
+_cache: Dict[Any, tuple[float, Any]] = {}
+
+
+def _cached(key: Any, loader: Any, *, ttl: float = _CACHE_TTL_SECONDS) -> Any:
+    now = time.monotonic()
+    with _cache_lock:
+        hit = _cache.get(key)
+        if hit is not None and now - hit[0] < ttl:
+            return hit[1]
+    value = loader()
+    with _cache_lock:
+        _cache[key] = (now, value)
+    return value
+
+
+def _market_data_as_of(conn: Any) -> str | None:
+    """Latest date with stored daily prices (market data is frozen in showcase mode)."""
+
+    def load() -> str | None:
+        r = conn.execute("SELECT MAX(date) AS d FROM issuer_prices_daily").fetchone()
+        return str(r["d"]) if r and r.get("d") else None
+
+    return _cached("market_data_as_of", load)
+
+
+def _showcase_stats(conn: Any) -> Dict[str, Any]:
+    def load() -> Dict[str, Any]:
+        filings = conn.execute(
+            "SELECT COUNT(*) AS n, MIN(filing_date) AS first_date, MAX(filing_date) AS last_date FROM filings"
+        ).fetchone()
+        events = conn.execute("SELECT COUNT(*) AS n FROM insider_events").fetchone()
+        issuers = conn.execute("SELECT COUNT(*) AS n FROM issuer_master").fetchone()
+        ai = conn.execute("SELECT COUNT(*) AS n FROM ai_outputs").fetchone()
+        return {
+            "filings": int((filings or {}).get("n") or 0),
+            "first_filing_date": (filings or {}).get("first_date"),
+            "last_filing_date": (filings or {}).get("last_date"),
+            "insider_events": int((events or {}).get("n") or 0),
+            "issuers": int((issuers or {}).get("n") or 0),
+            "ai_ratings": int((ai or {}).get("n") or 0),
+        }
+
+    return _cached("showcase_stats", load)
+
+
+@app.get("/public/site-status")
+def public_site_status() -> Dict[str, Any]:
+    """What the SPA needs to render showcase framing (banner, data freshness, demo button)."""
+    as_of: str | None = None
+    stats: Dict[str, Any] | None = None
+    try:
+        with connect(cfg.DB_DSN) as conn:
+            as_of = _market_data_as_of(conn)
+            stats = _showcase_stats(conn) if cfg.SHOWCASE_MODE else None
+    except Exception as e:
+        _debug(f"site-status lookup failed: {e}")
+    return {
+        "showcase_mode": bool(cfg.SHOWCASE_MODE),
+        "demo_login_available": bool(cfg.SHOWCASE_MODE),
+        "market_data_as_of": as_of,
+        "stats": stats,
+    }
 
 
 # -----------------------------
@@ -240,6 +314,56 @@ def _clean_profile_text(value: Any) -> str | None:
 def _reject_showcase_mutation(user: Dict[str, Any]) -> None:
     if str(user.get("role") or "").strip().lower() == "showcase":
         raise HTTPException(status_code=403, detail="showcase_read_only")
+
+
+# -----------------------------
+# Showcase viewer privacy
+# -----------------------------
+# The showcase account is reachable by anyone via /auth/demo-login, so admin
+# pages it can read must never expose real customers' contact details or any
+# credentials that ended up in job error strings.
+
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+_PHONE_RE = re.compile(r"(?<![\w+])(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\w)")
+_SECRET_PARAM_RE = re.compile(r"(?i)\b(api_token|api_key|apikey|key|token|secret|password)=([^&\s'\"]+)")
+
+
+def _is_showcase_viewer(user: Dict[str, Any]) -> bool:
+    return str(user.get("role") or "").strip().lower() == "showcase"
+
+
+def _mask_identity(value: Any) -> str | None:
+    """Mask a username / email so it stays recognizable as data, not as a person."""
+    s = str(value or "").strip()
+    if not s:
+        return None
+    if "@" in s:
+        local, _, domain = s.partition("@")
+        domain_name, _, tld = domain.rpartition(".")
+        masked_domain = f"{(domain_name or domain)[:1]}•••" + (f".{tld}" if domain_name else "")
+        return f"{local[:1]}•••@{masked_domain}"
+    return f"{s[:1]}•••"
+
+
+def _mask_full_name(value: Any) -> str | None:
+    parts = [p for p in str(value or "").split() if p]
+    if not parts:
+        return None
+    return " ".join(f"{p[0].upper()}." for p in parts[:3])
+
+
+def _scrub_free_text(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    out = _EMAIL_RE.sub("[email hidden]", value)
+    out = _PHONE_RE.sub("[phone hidden]", out)
+    return out
+
+
+def _scrub_secrets(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    return _SECRET_PARAM_RE.sub(lambda m: f"{m.group(1)}=[redacted]", value)
 
 
 def _normalize_profile_preferences(raw: Any) -> Dict[str, Any]:
@@ -634,6 +758,45 @@ def auth_me(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     return {"user": user}
 
 
+DEMO_SHOWCASE_USERNAME = "recruiter-demo"
+
+
+@app.post("/auth/demo-login")
+def auth_demo_login(response: Response) -> Dict[str, Any]:
+    """One-click sign-in as the read-only showcase account (showcase mode only).
+
+    If no showcase account exists yet, one is created with a random password
+    (admins can set real credentials later from Site settings).
+    """
+    if not cfg.SHOWCASE_MODE:
+        raise HTTPException(status_code=404, detail="demo_login_disabled")
+
+    with connect(cfg.DB_DSN) as conn:
+        row = _get_showcase_user_row(conn)
+        if row is None:
+            create_user(
+                conn,
+                username=DEMO_SHOWCASE_USERNAME,
+                password=secrets.token_urlsafe(32),
+                role="showcase",
+            )
+            row = _get_showcase_user_row(conn)
+        if row is None or int(row.get("is_active") or 0) != 1:
+            raise HTTPException(status_code=503, detail="demo_account_unavailable")
+
+        touch_last_login(conn, int(row["user_id"]))
+        token = create_access_token(
+            secret=cfg.AUTH_JWT_SECRET,
+            user_id=int(row["user_id"]),
+            username=str(row["username"]),
+            role=str(row["role"]),
+            expires_minutes=int(cfg.AUTH_TOKEN_EXPIRE_MINUTES),
+        )
+        u = public_user(row)
+        _set_auth_cookies(response, token=token, user=u, cfg=cfg)
+        return {"user": u}
+
+
 @app.put("/auth/credentials")
 def auth_update_credentials(
     payload: UpdateCredentialsRequest,
@@ -853,9 +1016,11 @@ def admin_list_users(
     include_inactive: bool = Query(False),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0, le=50000),
-    _admin: Dict[str, Any] = Depends(require_admin_viewer),
+    viewer: Dict[str, Any] = Depends(require_admin_viewer),
 ) -> Dict[str, Any]:
-    qn = (q or "").strip()
+    showcase = _is_showcase_viewer(viewer)
+    # Search would let a public demo viewer probe whether an email has an account.
+    qn = "" if showcase else (q or "").strip()
     like = f"%{qn}%" if qn else None
     page_limit = int(limit) + 1
 
@@ -917,6 +1082,16 @@ def admin_list_users(
     has_next = len(users) > limit
     if has_next:
         users = users[:limit]
+
+    if showcase:
+        for u in users:
+            u["username"] = _mask_identity(u.get("username"))
+            u["full_name"] = _mask_full_name(u.get("full_name"))
+            u["contact_email"] = _mask_identity(u.get("contact_email"))
+            u["contact_phone"] = "•••" if u.get("contact_phone") else None
+            for key in ("stripe_customer_id", "stripe_subscription_id", "stripe_price_id"):
+                if u.get(key):
+                    u[key] = str(u[key]).split("_", 1)[0] + "_•••"
 
     return {
         "users": users,
@@ -1122,7 +1297,9 @@ def admin_update_pricing_display(
 @app.get("/billing/plans")
 def billing_plans() -> Dict[str, Any]:
     """Expose configured plan price IDs so the frontend can render pricing."""
-    billing_enabled = bool(cfg.STRIPE_SECRET_KEY and (cfg.STRIPE_PRICE_ID_MONTHLY or cfg.STRIPE_PRICE_ID_YEARLY))
+    billing_enabled = bool(
+        not cfg.SHOWCASE_MODE and cfg.STRIPE_SECRET_KEY and (cfg.STRIPE_PRICE_ID_MONTHLY or cfg.STRIPE_PRICE_ID_YEARLY)
+    )
     monthly_trial_days = max(int(cfg.STRIPE_MONTHLY_TRIAL_DAYS or 0), 0)
     return {
         "monthly": cfg.STRIPE_PRICE_ID_MONTHLY,
@@ -1149,6 +1326,8 @@ def billing_checkout_session(
 ) -> Dict[str, Any]:
     """Create a Stripe Checkout session for the logged-in user."""
     _reject_showcase_mutation(user)
+    if cfg.SHOWCASE_MODE:
+        raise HTTPException(status_code=403, detail="subscriptions_closed")
     plan = (payload.plan or "monthly").strip().lower()
     if plan not in ("monthly", "yearly", "trial", "trial_monthly"):
         raise HTTPException(status_code=400, detail="invalid_plan")
@@ -1275,7 +1454,7 @@ def submit_feedback(
 @app.get("/admin/feedback")
 def admin_list_feedback(
     limit: int = Query(100, ge=1, le=500),
-    _admin: Dict[str, Any] = Depends(require_admin_viewer),
+    viewer: Dict[str, Any] = Depends(require_admin_viewer),
 ) -> Dict[str, Any]:
     with connect(cfg.DB_DSN) as conn:
         rows = conn.execute(
@@ -1288,7 +1467,12 @@ def admin_list_feedback(
             """,
             (limit,),
         ).fetchall()
-        return {"feedback": [dict(r) for r in rows]}
+        feedback = [dict(r) for r in rows]
+        if _is_showcase_viewer(viewer):
+            for f in feedback:
+                f["username"] = _mask_identity(f.get("username"))
+                f["message"] = _scrub_free_text(f.get("message"))
+        return {"feedback": feedback}
 
 
 # -----------------------------
@@ -1422,7 +1606,7 @@ def support_send_message(
 def admin_support_threads(
     status: str | None = Query(None, description="open|closed"),
     limit: int = Query(50, ge=1, le=200),
-    _admin: Dict[str, Any] = Depends(require_admin_viewer),
+    viewer: Dict[str, Any] = Depends(require_admin_viewer),
 ) -> Dict[str, Any]:
     st = (status or "").strip().lower() or None
     if st is not None and st not in ("open", "closed"):
@@ -1473,13 +1657,18 @@ def admin_support_threads(
             (*params, limit),
         ).fetchall()
 
-        return {"threads": [dict(r) for r in rows]}
+        threads = [dict(r) for r in rows]
+        if _is_showcase_viewer(viewer):
+            for t in threads:
+                t["username"] = _mask_identity(t.get("username"))
+                t["last_message"] = _scrub_free_text(t.get("last_message"))
+        return {"threads": threads}
 
 
 @app.get("/admin/support/thread/{thread_id}")
 def admin_support_thread_detail(
     thread_id: int,
-    _admin: Dict[str, Any] = Depends(require_admin_viewer),
+    viewer: Dict[str, Any] = Depends(require_admin_viewer),
 ) -> Dict[str, Any]:
     tid = int(thread_id)
     with connect(cfg.DB_DSN) as conn:
@@ -1513,7 +1702,14 @@ def admin_support_thread_detail(
             (tid,),
         ).fetchall()
 
-        return {"thread": dict(thread), "messages": [dict(m) for m in msgs]}
+        thread_out = dict(thread)
+        messages = [dict(m) for m in msgs]
+        if _is_showcase_viewer(viewer):
+            thread_out["username"] = _mask_identity(thread_out.get("username"))
+            for m in messages:
+                m["sender_username"] = _mask_identity(m.get("sender_username"))
+                m["message"] = _scrub_free_text(m.get("message"))
+        return {"thread": thread_out, "messages": messages}
 
 
 @app.post("/admin/support/thread/{thread_id}/message")
@@ -2174,7 +2370,7 @@ def get_event(
             d.pop("output_json", None)
             d.pop("input_json", None)
 
-            ai_latest = _sanitize_ai_latest_for_viewer(d, is_admin=bool(user.get("is_admin")))
+            ai_latest = _sanitize_ai_latest_for_viewer(d, is_admin=bool(user.get("can_view_admin")))
 
         # Trade plan (technicals-only) for eligible BUY signals.
         trade_plan = None
@@ -2329,7 +2525,10 @@ def admin_jobs(
             (*params, limit),
         ).fetchall()
 
-        return {"jobs": [dict(r) for r in rows], "counts": counts}
+        jobs = [dict(r) for r in rows]
+        for j in jobs:
+            j["last_error"] = _scrub_secrets(j.get("last_error"))
+        return {"jobs": jobs, "counts": counts}
 
 
 @app.get("/admin/monitoring")
@@ -2528,7 +2727,7 @@ def admin_monitoring(
             "latency_by_type": latency_by_type,
             "backfill_counts": backfill_counts,
             "table_counts": table_counts,
-            "recent_errors": [dict(r) for r in erows],
+            "recent_errors": [{**dict(r), "last_error": _scrub_secrets(r.get("last_error"))} for r in erows],
         }
 
 
@@ -2874,7 +3073,19 @@ class SocialPostRequest(BaseModel):
 
 @app.get("/me/entitlements")
 def me_entitlements(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    return build_entitlements(user)
+    # Showcase mode turns the paywall off, so everyone gets the paid entitlements.
+    return build_entitlements(dict(user, is_paid=True) if cfg.SHOWCASE_MODE else user)
+
+
+def _best_performing_response(days: int, limit: int) -> Dict[str, Any]:
+    def load() -> Dict[str, Any]:
+        with connect(cfg.DB_DSN) as conn:
+            as_of = _market_data_as_of(conn)
+            results = _query_best_performing_signals(conn, days=days, limit=limit)
+        return {"days": days, "limit": limit, "as_of": as_of, "results": results}
+
+    # Rankings only move when new prices land, so a short cache keeps the landing page fast.
+    return _cached(("best_performing", days, limit), load)
 
 
 @app.get("/signals/best-performing")
@@ -2884,24 +3095,22 @@ def best_performing_signals(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     hard_limit = min(int(limit), 20)
-    free_limit = get_result_limit_for_user(user, "best_performing_signals")
+    free_limit = None if cfg.SHOWCASE_MODE else get_result_limit_for_user(user, "best_performing_signals")
     if free_limit is not None:
         hard_limit = min(hard_limit, free_limit)
 
-    with connect(cfg.DB_DSN) as conn:
-        out = _query_best_performing_signals(conn, days=int(days), limit=hard_limit)
-    return {"days": days, "limit": hard_limit, "is_limited": free_limit is not None, "results": out}
+    out = _best_performing_response(int(days), hard_limit)
+    return {**out, "is_limited": free_limit is not None}
 
 
 @app.get("/public/signals/best-performing")
 def public_best_performing_signals(
     days: int = Query(60, ge=1, le=365),
-    limit: int = Query(5, ge=1, le=5),
+    limit: int = Query(5, ge=1, le=20),
 ) -> Dict[str, Any]:
-    hard_limit = min(int(limit), 5)
-    with connect(cfg.DB_DSN) as conn:
-        out = _query_best_performing_signals(conn, days=int(days), limit=hard_limit)
-    return {"days": days, "limit": hard_limit, "results": out}
+    # Showcase mode shows the full top 20 publicly; the paid product previewed 5.
+    hard_limit = min(int(limit), 20 if cfg.SHOWCASE_MODE else 5)
+    return _best_performing_response(int(days), hard_limit)
 
 
 @app.get("/admin/social/x/candidates")
@@ -2923,7 +3132,16 @@ def social_x_candidates(
 
 
 def _query_best_performing_signals(conn: Any, *, days: int, limit: int) -> List[Dict[str, Any]]:
-    start_date = (date.today() - timedelta(days=int(days))).isoformat()
+    # Anchor the window on the last day we have prices for, not on today. Once price
+    # ingestion stops (e.g. the market-data subscription lapses), a window counted back
+    # from today only contains filings with no later prices, and the board goes empty.
+    as_of_raw = _market_data_as_of(conn)
+    try:
+        as_of = min(date.fromisoformat(as_of_raw), date.today()) if as_of_raw else date.today()
+    except ValueError:
+        as_of = date.today()
+    start_date = (as_of - timedelta(days=int(days))).isoformat()
+    end_date = as_of.isoformat()
     candidate_limit = max(int(limit) * 20, 100)
     rows = conn.execute(
         """
@@ -2943,6 +3161,7 @@ def _query_best_performing_signals(conn: Any, *, days: int, limit: int) -> List[
           FROM insider_events e
           LEFT JOIN issuer_master im ON im.issuer_cik=e.issuer_cik
           WHERE COALESCE(NULLIF(e.filing_date,''), NULLIF(e.event_trade_date,'')) >= ?
+            AND COALESCE(NULLIF(e.filing_date,''), NULLIF(e.event_trade_date,'')) <= ?
             AND e.ticker IS NOT NULL AND BTRIM(e.ticker) <> ''
         ), priced AS (
           SELECT
@@ -2963,7 +3182,7 @@ def _query_best_performing_signals(conn: Any, *, days: int, limit: int) -> List[
             LIMIT 1
           ) sp0 ON TRUE
           JOIN LATERAL (
-            SELECT p.date, p.adj_close
+            SELECT p.date, p.adj_close, p.source_ticker
             FROM issuer_prices_daily p
             WHERE p.issuer_cik = b.issuer_cik
               AND p.adj_close IS NOT NULL
@@ -2974,13 +3193,13 @@ def _query_best_performing_signals(conn: Any, *, days: int, limit: int) -> List[
         SELECT
           *,
           (((latest_price / NULLIF(starting_price,0)) - 1.0) * 100.0) AS percent_return,
-          GREATEST(0, (CURRENT_DATE - (signal_date::date))) AS days_elapsed
+          GREATEST(0, ((latest_date_used::date) - (signal_date::date))) AS days_elapsed
         FROM priced
         WHERE starting_price IS NOT NULL AND latest_price IS NOT NULL
         ORDER BY percent_return DESC
         LIMIT ?
         """,
-        (start_date, candidate_limit),
+        (start_date, end_date, candidate_limit),
     ).fetchall()
 
     out: List[Dict[str, Any]] = []
@@ -3035,6 +3254,10 @@ def _ensure_best_performer_ticker_validation(conn: Any, row: Dict[str, Any], tic
     cached = get_cached_validation(conn, issuer_cik, ticker)
     if cached is not None:
         return cached
+
+    # Showcase mode has no live market-data provider; never block a page view on it.
+    if cfg.SHOWCASE_MODE:
+        return None
 
     try:
         return validate_issuer_ticker(
