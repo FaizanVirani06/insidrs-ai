@@ -2,6 +2,7 @@ import * as React from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { AdminAiInputsPanel } from "@/components/admin-ai-inputs-panel";
+import { AI_PAUSED_MESSAGE, useSiteStatus } from "@/lib/site-status";
 import { PriceChart } from "@/components/price-chart";
 import { RegenerateAIButton } from "@/components/regenerate-ai-button";
 import { useAuth } from "@/components/auth-provider";
@@ -61,6 +62,7 @@ function tradePlanHasUsefulContent(plan: any): boolean {
 export function EventDetailPage() {
   const params = useParams<{ issuer_cik: string; owner_key: string; accession_number: string }>();
   const { user } = useAuth();
+  const { ai_classification_enabled } = useSiteStatus();
   const isAdmin = user?.role === "admin";
   // The read-only showcase account may inspect model metadata and the exact AI input package.
   const canViewAiInternals = isAdmin || user?.role === "showcase";
@@ -477,6 +479,12 @@ export function EventDetailPage() {
               </div>
             ) : null}
           </div>
+        </div>
+      ) : null}
+
+      {!showAiExplanation && !ai_classification_enabled ? (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          <span className="font-semibold">No AI rating for this filing.</span> {AI_PAUSED_MESSAGE}
         </div>
       ) : null}
 
