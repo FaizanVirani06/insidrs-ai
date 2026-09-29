@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Link } from "react-router-dom";
 
+import { CuratedFeedNote } from "@/components/curated-feed-note";
 import { EventCard } from "@/components/event-card";
 import { apiFetch } from "@/lib/api";
 import { dedupeEventsByFiling } from "@/lib/event-utils";
@@ -137,6 +138,7 @@ export function RecommendationsPage() {
             <p className="mt-2 text-sm muted">
               The platform’s strongest recent insider events, filtered through your saved profile settings.
             </p>
+            <CuratedFeedNote />
             {updatedAt ? <div className="mt-3 text-xs muted">Using profile updated {updatedAt}</div> : null}
           </div>
 

@@ -34,6 +34,9 @@ kept online as a **portfolio showcase**.
   mask customer names, emails, phones, and Stripe IDs for that account. Job error strings are scrubbed of
   credentials for all viewers.
 - The leaderboard's 60-day window is anchored on the last date with stored prices instead of today.
+- Feeds (events, For You, tickers, ticker pages) show visitors only fully analyzed events: an AI rating plus stored
+  prices after the filing. Lookback windows count back from the last priced day. Admins still see every ingested
+  filing.
 - The SPA shows a portfolio banner, the `/recruiters` page, and the guided tour.
 
 Set `SHOWCASE_MODE=0` to restore normal paid-product behavior.

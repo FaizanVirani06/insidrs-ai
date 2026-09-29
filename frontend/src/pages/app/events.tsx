@@ -4,6 +4,7 @@ import * as React from "react";
 
 import type { InsiderEventRow } from "@/lib/types";
 import { apiFetch } from "@/lib/api";
+import { CuratedFeedNote } from "@/components/curated-feed-note";
 import { EventCard } from "@/components/event-card";
 
 const LOOKBACK_OPTIONS: { label: string; value: number }[] = [
@@ -113,6 +114,7 @@ export function EventsPage() {
             <p className="mt-2 text-sm muted">
               Browse recent insider buys and sells in a compact signal grid. Cards only surface the side-specific data that actually exists for each filing.
             </p>
+            <CuratedFeedNote />
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3 xl:w-[520px]">

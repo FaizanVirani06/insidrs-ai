@@ -123,6 +123,33 @@ def _market_data_as_of(conn: Any) -> str | None:
     return _cached("market_data_as_of", load)
 
 
+def _market_data_as_of_date(conn: Any) -> date:
+    """The last priced day (never in the future); today if no prices are stored."""
+    raw = _market_data_as_of(conn)
+    try:
+        return min(date.fromisoformat(raw), date.today()) if raw else date.today()
+    except ValueError:
+        return date.today()
+
+
+# An event is "analyzed" when it has an AI rating and the issuer has stored prices after the filing,
+# so outcomes, trend features, and charts can exist for it.
+_ANALYZED_EVENT_SQL = (
+    "((e.ai_buy_rating IS NOT NULL OR e.ai_sell_rating IS NOT NULL) "
+    "AND EXISTS (SELECT 1 FROM issuer_prices_daily p WHERE p.issuer_cik = e.issuer_cik AND p.date >= e.filing_date))"
+)
+
+
+def _curate_feeds_for(user: Dict[str, Any]) -> bool:
+    """Showcase visitors only see fully analyzed events; admins still see every ingested filing."""
+    return bool(cfg.SHOWCASE_MODE) and not user.get("is_admin")
+
+
+def _feed_anchor_date(conn: Any, user: Dict[str, Any]) -> date:
+    """Lookback windows count back from the data freeze for curated viewers, from today otherwise."""
+    return _market_data_as_of_date(conn) if _curate_feeds_for(user) else date.today()
+
+
 def _showcase_stats(conn: Any) -> Dict[str, Any]:
     def load() -> Dict[str, Any]:
         filings = conn.execute(
@@ -917,7 +944,7 @@ def recommendations(
     user: Dict[str, Any] = Depends(require_subscription),
 ) -> Dict[str, Any]:
     user_id = int(user["user_id"])
-    start_date = (date.today() - timedelta(days=int(days))).isoformat()
+    curated = _curate_feeds_for(user)
     page_limit = int(limit) + 1
 
     best_ai_expr = (
@@ -929,6 +956,7 @@ def recommendations(
     with connect(cfg.DB_DSN) as conn:
         profile = _get_current_profile(conn, user_id)
         prefs = _normalize_profile_preferences(profile.get("preferences"))
+        start_date = (_feed_anchor_date(conn, user) - timedelta(days=int(days))).isoformat()
 
         where = [
             "e.filing_date >= ?",
@@ -936,6 +964,8 @@ def recommendations(
             "(e.ai_buy_rating IS NOT NULL OR e.ai_sell_rating IS NOT NULL OR e.ai_confidence IS NOT NULL)",
         ]
         params: list[Any] = [start_date]
+        if curated:
+            where.append(_ANALYZED_EVENT_SQL)
 
         side = str(prefs.get("trade_side") or "buy").strip().lower()
         if side == "buy":
@@ -1854,6 +1884,14 @@ def list_tickers(
         order_base = "ORDER BY im.last_filing_date DESC NULLS LAST, im.current_ticker ASC, im.issuer_cik ASC"
         order_final = "ORDER BY b.last_filing_date DESC NULLS LAST, b.current_ticker ASC, b.issuer_cik ASC"
 
+    curated = _curate_feeds_for(user)
+    issuer_filter = (
+        f" AND EXISTS (SELECT 1 FROM insider_events e WHERE e.issuer_cik = im.issuer_cik AND {_ANALYZED_EVENT_SQL})"
+        if curated
+        else ""
+    )
+    event_filter = f" AND {_ANALYZED_EVENT_SQL}" if curated else ""
+
     with connect(cfg.DB_DSN) as conn:
         total_count: Optional[int] = None
         total_pages: Optional[int] = None
@@ -1866,7 +1904,7 @@ def list_tickers(
             FROM issuer_master im
             LEFT JOIN issuer_fundamentals_cache f ON f.ticker = im.current_ticker
             WHERE im.current_ticker IS NOT NULL
-            """
+            """ + issuer_filter
             count_params: List[Any] = []
             if like is not None:
                 count_sql += " AND (im.current_ticker ILIKE ? OR im.issuer_name ILIKE ? OR im.issuer_cik ILIKE ? OR f.sector ILIKE ?)"
@@ -1895,7 +1933,7 @@ def list_tickers(
             FROM issuer_master im
             LEFT JOIN issuer_fundamentals_cache f ON f.ticker = im.current_ticker
             WHERE im.current_ticker IS NOT NULL
-        """
+        """ + issuer_filter
         params: List[Any] = []
 
         if like is not None:
@@ -1922,7 +1960,7 @@ def list_tickers(
                     END
                 ) AS best_event_ai_rating
             FROM insider_events e
-            WHERE e.issuer_cik IN (SELECT issuer_cik FROM base)
+            WHERE e.issuer_cik IN (SELECT issuer_cik FROM base){event_filter}
             GROUP BY e.issuer_cik
         ),
         cluster_counts AS (
@@ -2061,10 +2099,12 @@ def ticker_events(
             reparse_enqueued = True
 
         where = ["e.ticker=?"]
+        if _curate_feeds_for(user):
+            where.append(_ANALYZED_EVENT_SQL)
         params: List[Any] = [t]
 
         if days is not None:
-            start_date = (date.today() - timedelta(days=int(days))).isoformat()
+            start_date = (_feed_anchor_date(conn, user) - timedelta(days=int(days))).isoformat()
             where.append("e.filing_date >= ?")
             params.append(start_date)
 
@@ -2210,10 +2250,11 @@ def list_events(
     if not user.get("is_admin"):
         open_market_only = True
 
-    start_date = (date.today() - timedelta(days=int(days))).isoformat()
-
+    curated = _curate_feeds_for(user)
     where = ["e.filing_date >= ?"]
-    params: List[Any] = [start_date]
+    params: List[Any] = []
+    if curated:
+        where.append(_ANALYZED_EVENT_SQL)
 
     if open_market_only:
         where.append("(e.has_buy=1 OR e.has_sell=1)")
@@ -2252,6 +2293,7 @@ def list_events(
         """
 
     with connect(cfg.DB_DSN) as conn:
+        params.insert(0, (_feed_anchor_date(conn, user) - timedelta(days=int(days))).isoformat())
         rows = conn.execute(
             f"""
             SELECT
@@ -3167,11 +3209,7 @@ def _query_best_performing_signals(conn: Any, *, days: int, limit: int) -> List[
     # Anchor the window on the last day we have prices for, not on today. Once price
     # ingestion stops (e.g. the market-data subscription lapses), a window counted back
     # from today only contains filings with no later prices, and the board goes empty.
-    as_of_raw = _market_data_as_of(conn)
-    try:
-        as_of = min(date.fromisoformat(as_of_raw), date.today()) if as_of_raw else date.today()
-    except ValueError:
-        as_of = date.today()
+    as_of = _market_data_as_of_date(conn)
     start_date = (as_of - timedelta(days=int(days))).isoformat()
     end_date = as_of.isoformat()
     candidate_limit = max(int(limit) * 20, 100)
