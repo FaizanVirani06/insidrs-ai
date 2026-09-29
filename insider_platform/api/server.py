@@ -19,6 +19,11 @@ from insider_platform.db import connect, init_db, get_app_config, upsert_app_con
 from insider_platform.util.time import utcnow_iso
 from insider_platform.jobs.queue import enqueue_job
 
+from insider_platform.ai.settings import (
+    get_ai_classification_settings,
+    is_ai_classification_enabled,
+    set_ai_classification_enabled,
+)
 from insider_platform.compute.trade_plan import compute_trade_plan_for_event
 from insider_platform.compute.ticker_validation import get_cached_validation, get_validation_status, validate_issuer_ticker
 
@@ -143,16 +148,19 @@ def public_site_status() -> Dict[str, Any]:
     """What the SPA needs to render showcase framing (banner, data freshness, demo button)."""
     as_of: str | None = None
     stats: Dict[str, Any] | None = None
+    ai_enabled = False
     try:
         with connect(cfg.DB_DSN) as conn:
             as_of = _market_data_as_of(conn)
             stats = _showcase_stats(conn) if cfg.SHOWCASE_MODE else None
+            ai_enabled = is_ai_classification_enabled(conn)
     except Exception as e:
         _debug(f"site-status lookup failed: {e}")
     return {
         "showcase_mode": bool(cfg.SHOWCASE_MODE),
         "demo_login_available": bool(cfg.SHOWCASE_MODE),
         "market_data_as_of": as_of,
+        "ai_classification_enabled": ai_enabled,
         "stats": stats,
     }
 
@@ -1182,6 +1190,26 @@ def admin_upsert_showcase_user(
     with connect(cfg.DB_DSN) as conn:
         showcase_user = _upsert_showcase_user(conn, payload)
     return {"ok": True, "showcase_user": showcase_user}
+
+
+class AiSettingsUpdateRequest(BaseModel):
+    enabled: bool
+
+
+@app.get("/admin/site/ai-settings")
+def admin_get_ai_settings(_viewer: Dict[str, Any] = Depends(require_admin_viewer)) -> Dict[str, Any]:
+    with connect(cfg.DB_DSN) as conn:
+        return {"ai_settings": get_ai_classification_settings(conn)}
+
+
+@app.post("/admin/site/ai-settings")
+def admin_update_ai_settings(
+    payload: AiSettingsUpdateRequest,
+    _admin: Dict[str, Any] = Depends(require_admin),
+) -> Dict[str, Any]:
+    with connect(cfg.DB_DSN) as conn:
+        settings = set_ai_classification_enabled(conn, bool(payload.enabled))
+    return {"ok": True, "ai_settings": settings}
 
 
 # -----------------------------
@@ -2860,6 +2888,10 @@ def admin_regenerate_ai(
     acc = accession_number.strip()
     if not acc:
         raise HTTPException(status_code=400, detail="missing_accession_number")
+
+    with connect(cfg.DB_DSN) as conn:
+        if not is_ai_classification_enabled(conn):
+            raise HTTPException(status_code=409, detail="ai_classification_paused")
 
     with connect(cfg.DB_DSN) as conn:
         enqueue_job(

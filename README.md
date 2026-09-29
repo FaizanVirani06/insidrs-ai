@@ -38,6 +38,14 @@ kept online as a **portfolio showcase**.
 
 Set `SHOWCASE_MODE=0` to restore normal paid-product behavior.
 
+## Pausing Gemini classification
+
+Gemini classification is **off by default**. Admins can turn it on or off from **Site settings** in the app; the
+switch lives in the database, so no redeploy is needed. While it's paused, the SEC poller and the other workers keep
+ingesting and processing filings, but AI jobs finish without calling Gemini. The site shows an "AI classification is
+paused" notice, and manual "Regenerate AI" requests are refused. Filings ingested while paused are not rated
+retroactively when it's turned back on.
+
 ## Project layout
 
 - `insider_platform/`: FastAPI app, DB layer, SEC ingestion, analytics, AI, billing

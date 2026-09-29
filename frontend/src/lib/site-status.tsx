@@ -15,9 +15,14 @@ export type SiteStatus = {
   showcase_mode: boolean;
   demo_login_available: boolean;
   market_data_as_of: string | null;
+  ai_classification_enabled: boolean;
   stats: SiteStats | null;
   loaded: boolean;
 };
+
+/** Shown wherever AI ratings appear while Gemini classification is switched off. */
+export const AI_PAUSED_MESSAGE =
+  "AI classification is paused due to a temporary halt in development. New filings are still ingested but are not being rated.";
 
 // Showcase mode is the backend default, so assume it until /public/site-status answers.
 // That avoids flashing paid-product copy (pricing CTAs, paywalls) on first paint.
@@ -25,6 +30,7 @@ const DEFAULT_STATUS: SiteStatus = {
   showcase_mode: true,
   demo_login_available: true,
   market_data_as_of: null,
+  ai_classification_enabled: false,
   stats: null,
   loaded: false,
 };
@@ -44,6 +50,7 @@ export function SiteStatusProvider({ children }: { children: React.ReactNode }) 
           showcase_mode: data ? Boolean(data.showcase_mode) : DEFAULT_STATUS.showcase_mode,
           demo_login_available: data ? Boolean(data.demo_login_available) : DEFAULT_STATUS.demo_login_available,
           market_data_as_of: typeof data?.market_data_as_of === "string" ? data.market_data_as_of : null,
+          ai_classification_enabled: Boolean(data?.ai_classification_enabled),
           stats: data?.stats ?? null,
           loaded: true,
         });

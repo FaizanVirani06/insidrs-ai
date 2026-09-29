@@ -155,6 +155,8 @@ export function AdminSettingsPage() {
   const [savingPricing, setSavingPricing] = React.useState(false);
   const [savingBranding, setSavingBranding] = React.useState(false);
   const [savingShowcase, setSavingShowcase] = React.useState(false);
+  const [savingAi, setSavingAi] = React.useState(false);
+  const [aiSettings, setAiSettings] = React.useState<{ enabled: boolean; updated_at: string | null } | null>(null);
 
   const [display, setDisplay] = React.useState<PricingDisplay | null>(null);
   const [plans, setPlans] = React.useState<{
@@ -212,22 +214,26 @@ export function AdminSettingsPage() {
     setSuccess(null);
 
     try {
-      const [dRes, pRes, bRes, sRes] = await Promise.all([
+      const [dRes, pRes, bRes, sRes, aRes] = await Promise.all([
         apiFetch("/public/pricing-display", { cache: "no-store" }),
         apiFetch("/billing/plans", { cache: "no-store" }),
         apiFetch("/public/site-branding", { cache: "no-store" }),
         apiFetch("/admin/site/showcase-user", { cache: "no-store" }),
+        apiFetch("/admin/site/ai-settings", { cache: "no-store" }),
       ]);
 
       if (!dRes.ok) throw new Error(await dRes.text());
       if (!pRes.ok) throw new Error(await pRes.text());
       if (!bRes.ok) throw new Error(await bRes.text());
       if (!sRes.ok) throw new Error(await sRes.text());
+      if (!aRes.ok) throw new Error(await aRes.text());
 
       const d = (await dRes.json()) as PricingDisplay;
       const p = await pRes.json();
       const b = await bRes.json();
       const s = await sRes.json();
+      const a = await aRes.json();
+      setAiSettings({ enabled: Boolean(a?.ai_settings?.enabled), updated_at: a?.ai_settings?.updated_at ?? null });
 
       setDisplay(d);
       setMonthlyUsd(String(d.monthly_usd));
@@ -325,6 +331,31 @@ export function AdminSettingsPage() {
       setError(e?.message || "Failed to save branding.");
     } finally {
       setSavingBranding(false);
+    }
+  }
+
+  async function toggleAi(enabled: boolean) {
+    setSavingAi(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await apiFetch("/admin/site/ai-settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const json = await res.json();
+      setAiSettings({ enabled: Boolean(json?.ai_settings?.enabled), updated_at: json?.ai_settings?.updated_at ?? null });
+      setSuccess(
+        enabled
+          ? "Gemini classification enabled. New filings will be rated (and billed) from now on."
+          : "Gemini classification paused. New filings are still ingested but won't be rated.",
+      );
+    } catch (e: any) {
+      setError(e?.message || "Failed to update AI settings.");
+    } finally {
+      setSavingAi(false);
     }
   }
 
@@ -532,6 +563,41 @@ export function AdminSettingsPage() {
           changes is disabled for the showcase account.
         </div>
       ) : null}
+
+      <div className="glass-panel p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="max-w-2xl">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="text-sm font-semibold">Gemini AI classification</div>
+              {aiSettings ? (
+                <span
+                  className={
+                    aiSettings.enabled
+                      ? "rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-300"
+                      : "rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-300"
+                  }
+                >
+                  {aiSettings.enabled ? "On" : "Paused"}
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-1 text-xs muted">
+              When paused, filings keep flowing in but no Gemini calls are made, and the site shows an
+              &quot;AI classification is paused&quot; notice. Filings ingested while paused are not rated
+              retroactively when you turn it back on.
+              {aiSettings?.updated_at ? ` Last changed ${fmtDateTime(aiSettings.updated_at)}.` : ""}
+            </div>
+          </div>
+          <button
+            type="button"
+            className={aiSettings?.enabled ? "btn-secondary h-10 px-4" : "btn-primary h-10 px-4"}
+            disabled={isShowcase || savingAi || !aiSettings}
+            onClick={() => void toggleAi(!aiSettings?.enabled)}
+          >
+            {savingAi ? "Saving…" : aiSettings?.enabled ? "Pause classification" : "Turn classification on"}
+          </button>
+        </div>
+      </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="glass-panel p-5">

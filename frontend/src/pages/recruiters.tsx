@@ -145,6 +145,13 @@ export function RecruitersPage() {
         {status.market_data_as_of ? <> on {fmtLongDate(status.market_data_as_of)}</> : " at the last sync"}. Everything
         you&apos;ll see is real production data as of that day. Subscriptions are closed, and the whole app is open
         through the demo account.
+        {!status.ai_classification_enabled ? (
+          <>
+            {" "}
+            New filings are still being ingested, but AI classification is paused due to a temporary halt in
+            development, so recent filings won&apos;t have AI ratings.
+          </>
+        ) : null}
       </section>
 
       {stats && stats.filings > 0 ? (

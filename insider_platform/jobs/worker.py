@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Set
 
 from insider_platform.ai.judge import run_ai_for_event
+from insider_platform.ai.settings import is_ai_classification_enabled
 from insider_platform.compute.aggregate import aggregate_accession
 from insider_platform.compute.clusters import compute_clusters_for_ticker
 from insider_platform.compute.market_cap import fetch_and_store_market_cap
@@ -498,6 +499,12 @@ def _run_job(conn: Any, cfg: Config, job_type: str, payload: Dict[str, Any]) -> 
             accession_number=str(payload["accession_number"]),
         )
         force = bool(payload.get("force") or False)
+
+        # Admin kill switch (Site settings). Paused jobs finish without calling Gemini and are
+        # not retried later, so re-enabling never triggers a surprise backlog of paid calls.
+        if not is_ai_classification_enabled(conn):
+            _debug(f"AI classification paused; skipping {ek}")
+            return
 
         # Only generate AI for poller-discovered (new) filings.
         # - Backfills/reparses historically created thousands of events and would spam the AI API.

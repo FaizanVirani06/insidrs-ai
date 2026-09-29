@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTour } from "@/components/tour/tour-provider";
 import { TOUR_STEPS } from "@/components/tour/tour-steps";
 import { OWNER } from "@/lib/showcase";
+import { AI_PAUSED_MESSAGE, useSiteStatus } from "@/lib/site-status";
 
 const HIGHLIGHT_CLASS = "tour-target";
 
@@ -45,6 +46,7 @@ function useHighlight(target: string | undefined, enabled: boolean) {
 
 export function TourPanel() {
   const tour = useTour();
+  const { ai_classification_enabled } = useSiteStatus();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -134,6 +136,11 @@ export function TourPanel() {
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4 pt-2">
         <h2 className="text-lg font-semibold leading-snug text-zinc-50">{step.title}</h2>
         <p className="mt-2 text-sm leading-6 text-zinc-300">{step.body}</p>
+        {step.id === "ai" && !ai_classification_enabled ? (
+          <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-200">
+            {AI_PAUSED_MESSAGE} This example was rated before the pause.
+          </p>
+        ) : null}
 
         {!onStepPage ? (
           <button
