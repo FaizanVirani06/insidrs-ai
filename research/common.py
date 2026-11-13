@@ -20,6 +20,14 @@ def load_config(path: str | None = None) -> dict:
     return cfg
 
 
+def price_paths(cfg: dict):
+    """(prices file, benchmark file) for the configured price source."""
+    data = cfg["paths"]["data_dir"]
+    if cfg["price_source"] == "yfinance":
+        return data / "prices_yf.parquet", data / "benchmark_yf.parquet"
+    return data / "prices.parquet", data / "benchmark.parquet"
+
+
 def connect_readonly():
     """Open a connection that cannot write, whatever role it logs in as.
 

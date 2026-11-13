@@ -4,6 +4,13 @@ paths:
   data_dir: research/data        # raw extracts + analysis table (git-ignored)
   output_dir: research/output    # result tables and plots (git-ignored)
 
+# --- Price source --------------------------------------------------------------
+# db       = production's issuer_prices_daily (stops May 2026, many bad ticks)
+# yfinance = research/fetch_prices.py download (run that first)
+price_source: yfinance
+yfinance:
+  start: "2009-01-01"
+
 # --- Return construction -----------------------------------------------------
 horizons: [60, 180]              # trading days held
 # next_day = enter at the close of the first trading day AFTER the filing date.
@@ -25,6 +32,7 @@ filters:
   min_dollars: 5000              # ignore token purchases
   max_dollars: 1000000000        # larger amounts are parse errors (shares x price blow-ups) or not open-market buys
   min_trade_price: 1.0           # reported transaction price; proxy for penny stocks
+  max_trade_price: 10000         # above this the reported price is almost always a parse error
   exclude_amendments: true       # Form 4/A restates an earlier filing
   exclude_duplicates: true
   exclude_suspect_prices: true
@@ -32,8 +40,8 @@ filters:
 # --- Point-in-time features -----------------------------------------------------
 cluster_window_days: 14          # other insiders' buys FILED in the prior N days
 
-# --- AI ratings: live vs backfilled ---------------------------------------------
+# --- AI ratings: live vs backfilled (classified by the server clock) -----------
 ratings:
-  live_start: "2026-03-01"       # Gemini scoring ran roughly March-July 2026
-  live_end: "2026-07-31"
-  live_max_lag_days: 7           # rated within N days of the filing = live
+  live_max_lag_days: 7           # rated within N days of the filing = live (a real forecast)
+  backfill_min_lag_days: 90      # rated more than N days after = backfill (60-day outcome already known)
+  model_knowledge_cutoff: "2025-01-31"   # Gemini 2.5; earlier filings may be in its training data

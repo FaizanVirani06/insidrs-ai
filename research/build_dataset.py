@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 
-from research.common import load_config
+from research.common import load_config, price_paths
 
 D = "datetime64[D]"
 
@@ -268,12 +268,19 @@ def attach_ratings(df: pd.DataFrame, ratings: pd.DataFrame, rcfg: dict) -> pd.Da
     df["lag_input_clock"] = lag("input_mcap_ts")          # server time, lower bound on rating time
     df["lag_server_clock"] = lag("ai_computed_at")        # server time of the LATEST rating
 
-    start, end = pd.Timestamp(rcfg["live_start"]), pd.Timestamp(rcfg["live_end"])
-    in_window = (fd >= start) & (fd <= end)
-    prompt = df["lag_model_clock"].between(0, rcfg["live_max_lag_days"])
+    # Best clock for "when was this rated": the server's, falling back to the model's.
+    # (They agree within a day for ~99% of ratings; only 15 events were ever re-rated.)
+    lag_days = df["lag_server_clock"].fillna(df["lag_model_clock"])
+    df["rating_lag_days"] = lag_days
+    # live      rated within a few days of the filing: a genuine forecast
+    # late      rated weeks later: part of the outcome was already observable
+    # backfill  rated after the 60-day outcome was known; the model was also shown
+    #           this insider's stored win rate, which can contain the answer
     cls = np.where(df["rating"].isna(), "unrated",
-          np.where(fd < start, "backfill",
-          np.where(in_window & prompt, "live", "late")))
+          np.where(lag_days.between(0, rcfg["live_max_lag_days"]), "live",
+          np.where(lag_days > rcfg["backfill_min_lag_days"], "backfill", "late")))
+    # Filings from before the model's knowledge cutoff may be in its training data.
+    df["in_model_training_window"] = fd <= pd.Timestamp(rcfg["model_knowledge_cutoff"])
     df["rating_class"] = cls
     return df.drop(columns=["buy_rating", "sell_rating", "baseline_buy", "baseline_sell",
                             "shown_buy_n_60", "shown_sell_n_60", "shown_buy_win_60", "shown_buy_n_180"])
@@ -355,6 +362,7 @@ def build(events: pd.DataFrame, ratings: pd.DataFrame, price_index, global_last,
     mark(~(df["dollars_total"] >= f["min_dollars"]), "small_or_unpriced")
     mark(df["dollars_total"] > f["max_dollars"], "implausible_dollars")
     mark(df["vwap_price"] < f["min_trade_price"], "penny_stock")
+    mark(df["vwap_price"] > f["max_trade_price"], "implausible_price")
     mark(df["filing_delay_days"] < 0, "filed_before_trade")
     mark(df["entry_date"].isna(), "no_entry_price")
     if f["exclude_suspect_prices"]:
@@ -402,12 +410,13 @@ def main() -> None:
     data, out = cfg["paths"]["data_dir"], cfg["paths"]["output_dir"]
     events = pd.read_parquet(data / "events.parquet")
     ratings = pd.read_parquet(data / "ratings.parquet")
-    bench = pd.read_parquet(data / "benchmark.parquet")
+    prices_path, bench_path = price_paths(cfg)
+    bench = pd.read_parquet(bench_path)
     sym = bench["symbol"].value_counts().idxmax()
     bench = bench[bench["symbol"] == sym].sort_values("date")
-    price_index = PriceIndex(data / "prices.parquet")
+    price_index = PriceIndex(prices_path)
     global_last = price_index.global_last
-    print(f"[build] {len(events):,} events, {len(price_index):,} price series, "
+    print(f"[build] prices from {prices_path.name}; {len(events):,} events, {len(price_index):,} price series, "
           f"benchmark {sym}, newest price {global_last}")
 
     df = build(events, ratings, price_index, global_last,

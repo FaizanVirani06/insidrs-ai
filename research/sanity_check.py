@@ -15,7 +15,7 @@ import argparse
 
 import pandas as pd
 
-from research.common import load_config
+from research.common import load_config, price_paths
 
 
 def main() -> None:
@@ -27,7 +27,8 @@ def main() -> None:
     cfg = load_config()
     data = cfg["paths"]["data_dir"]
     df = pd.read_parquet(data / "analysis.parquet")
-    bench = pd.read_parquet(data / "benchmark.parquet")
+    prices_path, bench_path = price_paths(cfg)
+    bench = pd.read_parquet(bench_path)
     bench["date"] = pd.to_datetime(bench["date"])
     bench = bench[bench["symbol"] == bench["symbol"].value_counts().idxmax()].set_index("date")["adj_close"]
 
@@ -37,7 +38,7 @@ def main() -> None:
     worst = 0.0
     for _, r in sample.iterrows():
         # Read only this issuer's rows (the full price table is too big to load on a small server).
-        one = pd.read_parquet(data / "prices.parquet", filters=[("issuer_cik", "==", r["issuer_cik"])])
+        one = pd.read_parquet(prices_path, filters=[("issuer_cik", "==", r["issuer_cik"])])
         px = one.set_index(pd.to_datetime(one["date"]))["adj_close"].sort_index()
         # Independent recomputation, written the slow obvious way on purpose.
         after = px[px.index > r["filing_date"]] if cfg["entry"] == "next_day" else px[px.index >= r["filing_date"]]
