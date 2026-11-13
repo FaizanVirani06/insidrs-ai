@@ -23,6 +23,7 @@ suspect_daily_down: -0.6
 # --- Which rows count as a qualifying trade ------------------------------------
 filters:
   min_dollars: 5000              # ignore token purchases
+  max_dollars: 1000000000        # larger amounts are parse errors (shares x price blow-ups) or not open-market buys
   min_trade_price: 1.0           # reported transaction price; proxy for penny stocks
   exclude_amendments: true       # Form 4/A restates an earlier filing
   exclude_duplicates: true

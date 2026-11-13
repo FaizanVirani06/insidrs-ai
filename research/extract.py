@@ -14,23 +14,25 @@ import pyarrow.parquet as pq
 
 from research.common import connect_readonly, load_config
 
+# Dates are stored as text and a few carry a timezone suffix (2025-08-29-05:00),
+# so they are pulled as 10-character strings and parsed in build_dataset.py.
 # One row per insider event, with the filing's form type, sector, and the
 # returns production already computed (kept only to compare against ours).
 EVENTS_SQL = """
 SELECT e.issuer_cik, e.owner_key, e.accession_number, e.ticker,
-       e.filing_date::date AS filing_date,
+       LEFT(e.filing_date, 10) AS filing_date,
        f.form_type,
        e.owner_cik, e.owner_name_display, e.owner_title,
        e.is_officer, e.is_director, e.is_ten_percent_owner,
-       e.has_buy, e.buy_trade_date::date AS buy_trade_date, e.buy_shares_total, e.buy_dollars_total,
+       e.has_buy, LEFT(e.buy_trade_date, 10) AS buy_trade_date, e.buy_shares_total, e.buy_dollars_total,
        e.buy_vwap_price, e.buy_shares_owned_following, e.buy_pct_holdings_change,
-       e.has_sell, e.sell_trade_date::date AS sell_trade_date, e.sell_shares_total, e.sell_dollars_total,
+       e.has_sell, LEFT(e.sell_trade_date, 10) AS sell_trade_date, e.sell_shares_total, e.sell_dollars_total,
        e.sell_vwap_price, e.sell_shares_owned_following, e.sell_pct_holdings_change,
        e.non_open_market_row_count, e.derivative_row_count,
        e.trend_ret_20d, e.trend_ret_60d, e.trend_dist_52w_high, e.trend_dist_52w_low,
        e.trend_above_sma_50, e.trend_above_sma_200,
        e.cluster_flag_buy AS prod_cluster_flag_buy, e.cluster_flag_sell AS prod_cluster_flag_sell,
-       e.market_cap, LEFT(e.market_cap_updated_at, 10)::date AS market_cap_date,
+       e.market_cap, LEFT(e.market_cap_updated_at, 10) AS market_cap_date,
        e.ai_computed_at,
        fc.sector,
        ob.excess_return_60d  AS prod_buy_ex_60,  ob.excess_return_180d AS prod_buy_ex_180,
@@ -46,17 +48,17 @@ WHERE e.has_buy = 1 OR e.has_sell = 1
 """
 
 # Sorted by (issuer, date) so the build step can slice each issuer's series.
-PRICES_SQL = """
-SELECT issuer_cik, date::date AS date, adj_close
+PRICES_SQL = r"""
+SELECT issuer_cik, LEFT(date, 10)::date AS date, adj_close
 FROM issuer_prices_daily
-WHERE adj_close > 0
+WHERE adj_close > 0 AND date ~ '^\d{4}-\d{2}-\d{2}'
 ORDER BY issuer_cik, date
 """
 
-BENCH_SQL = """
-SELECT symbol, date::date AS date, adj_close
+BENCH_SQL = r"""
+SELECT symbol, LEFT(date, 10)::date AS date, adj_close
 FROM benchmark_prices_daily
-WHERE adj_close > 0
+WHERE adj_close > 0 AND date ~ '^\d{4}-\d{2}-\d{2}'
 ORDER BY symbol, date
 """
 

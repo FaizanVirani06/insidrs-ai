@@ -282,8 +282,8 @@ def attach_ratings(df: pd.DataFrame, ratings: pd.DataFrame, rcfg: dict) -> pd.Da
 def build(events: pd.DataFrame, ratings: pd.DataFrame, price_index, global_last,
           bench_dates, bench_closes, cfg: dict) -> pd.DataFrame:
     df = stack_sides(events)
-    df["filing_date"] = pd.to_datetime(df["filing_date"]).dt.normalize()
-    df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.normalize()
+    df["filing_date"] = pd.to_datetime(df["filing_date"], errors="coerce").dt.normalize()
+    df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce").dt.normalize()
     fd = df["filing_date"].to_numpy().astype(D)
 
     # ---- forward returns, issuer by issuer --------------------------------
@@ -299,7 +299,7 @@ def build(events: pd.DataFrame, ratings: pd.DataFrame, price_index, global_last,
     entry_date = np.full(len(df), np.datetime64("NaT", "D"))
     entry_px = np.full(len(df), np.nan)
     mcap_px = np.full(len(df), np.nan)
-    mcap_date = pd.to_datetime(df["market_cap_date"]).to_numpy().astype(D)
+    mcap_date = pd.to_datetime(df["market_cap_date"], errors="coerce").to_numpy().astype(D)
     for cik, pos in df.groupby("issuer_cik", sort=False).indices.items():
         dates, closes = price_index.get(cik)
         for h in horizons:
@@ -351,7 +351,9 @@ def build(events: pd.DataFrame, ratings: pd.DataFrame, price_index, global_last,
         reason[(reason == "") & mask.to_numpy()] = text
     mark(df["is_amendment"] & f["exclude_amendments"], "amendment")
     mark(df["is_duplicate"] & f["exclude_duplicates"], "duplicate")
+    mark(df["filing_date"].isna() | df["trade_date"].isna(), "bad_date")
     mark(~(df["dollars_total"] >= f["min_dollars"]), "small_or_unpriced")
+    mark(df["dollars_total"] > f["max_dollars"], "implausible_dollars")
     mark(df["vwap_price"] < f["min_trade_price"], "penny_stock")
     mark(df["filing_delay_days"] < 0, "filed_before_trade")
     mark(df["entry_date"].isna(), "no_entry_price")

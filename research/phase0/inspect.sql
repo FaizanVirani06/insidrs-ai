@@ -6,11 +6,12 @@
 --     psql -U postgres -d insider_platform -f - < research/phase0/inspect.sql > phase0_output.txt 2>&1
 --
 -- NOTE: dates and timestamps are stored as TEXT (ISO strings) in this schema,
--- so we cast with ::date / LEFT(...,10)::date where needed.
+-- and a few carry a timezone suffix (e.g. 2025-08-29-05:00), so every cast
+-- takes the first 10 characters and is guarded by a pattern check.
 
 \pset pager off
 \timing off
-BEGIN TRANSACTION READ ONLY;
+SET default_transaction_read_only = on;   -- every statement below is read-only
 
 \echo '===== A1. Tables: estimated rows and size ====='
 SELECT c.relname AS table_name,
@@ -80,6 +81,29 @@ SELECT COUNT(*) AS duplicate_groups, COALESCE(SUM(n),0) AS events_involved FROM 
   GROUP BY issuer_cik, owner_key, buy_trade_date, buy_shares_total HAVING COUNT(*)>1
 ) d;
 
+\echo '===== B7b. Dates that are not plain YYYY-MM-DD ====='
+SELECT COUNT(*) FILTER (WHERE filing_date !~ '^\d{4}-\d{2}-\d{2}$') AS odd_filing_dates,
+       COUNT(*) FILTER (WHERE buy_trade_date IS NOT NULL AND buy_trade_date !~ '^\d{4}-\d{2}-\d{2}$') AS odd_buy_trade_dates,
+       COUNT(*) FILTER (WHERE sell_trade_date IS NOT NULL AND sell_trade_date !~ '^\d{4}-\d{2}-\d{2}$') AS odd_sell_trade_dates
+FROM insider_events;
+
+\echo '===== B7c. Buy dollar amounts: how many are implausible? ====='
+SELECT COUNT(*) FILTER (WHERE buy_dollars_total >= 1e7)  AS over_10m,
+       COUNT(*) FILTER (WHERE buy_dollars_total >= 1e8)  AS over_100m,
+       COUNT(*) FILTER (WHERE buy_dollars_total >= 1e9)  AS over_1b,
+       COUNT(*) FILTER (WHERE buy_dollars_total >= 1e11) AS over_100b,
+       COUNT(*) FILTER (WHERE buy_dollars_total > market_cap AND market_cap > 0) AS over_market_cap,
+       COUNT(*) FILTER (WHERE buy_vwap_price >= 10000) AS price_over_10k,
+       MAX(buy_dollars_total) AS max_dollars, MAX(buy_vwap_price) AS max_price
+FROM insider_events WHERE has_buy=1;
+
+\echo '===== B7d. Is the historical backfill complete? (filing counts by year are very uneven) ====='
+SELECT LEFT(filing_date,4) AS yr, status, COUNT(*) AS n, COUNT(DISTINCT issuer_cik) AS issuers
+FROM backfill_queue GROUP BY 1,2 ORDER BY 1,2;
+
+SELECT LEFT(filing_date,4) AS yr, COUNT(DISTINCT issuer_cik) AS issuers_with_any_filing
+FROM filings GROUP BY 1 ORDER BY 1;
+
 \echo '===== B8. Buy data-quality flags ====='
 SELECT COUNT(*) AS buys,
        COUNT(*) FILTER (WHERE buy_dollars_total IS NULL OR buy_dollars_total<=0) AS no_dollars,
@@ -88,8 +112,8 @@ SELECT COUNT(*) AS buys,
        COUNT(*) FILTER (WHERE buy_vwap_is_partial=1) AS partial_price,
        COUNT(*) FILTER (WHERE buy_pct_holdings_change IS NULL) AS no_pct_holdings,
        COUNT(*) FILTER (WHERE has_sell=1) AS also_has_sell,
-       COUNT(*) FILTER (WHERE filing_date::date - buy_trade_date::date > 5) AS filed_late_gt5d,
-       COUNT(*) FILTER (WHERE filing_date::date < buy_trade_date::date) AS filed_before_trade,
+       COUNT(*) FILTER (WHERE (CASE WHEN filing_date ~ '^\d{4}-\d{2}-\d{2}' THEN LEFT(filing_date,10)::date END) - (CASE WHEN buy_trade_date ~ '^\d{4}-\d{2}-\d{2}' THEN LEFT(buy_trade_date,10)::date END) > 5) AS filed_late_gt5d,
+       COUNT(*) FILTER (WHERE (CASE WHEN filing_date ~ '^\d{4}-\d{2}-\d{2}' THEN LEFT(filing_date,10)::date END) < (CASE WHEN buy_trade_date ~ '^\d{4}-\d{2}-\d{2}' THEN LEFT(buy_trade_date,10)::date END)) AS filed_before_trade,
        COUNT(*) FILTER (WHERE ticker IS NULL OR ticker='') AS no_ticker
 FROM insider_events WHERE has_buy=1;
 
@@ -115,7 +139,7 @@ WITH px AS (
   FROM issuer_prices_daily GROUP BY 1
 )
 SELECT CASE WHEN px.issuer_cik IS NULL THEN 'no price series at all'
-            WHEN px.last_px::date < CURRENT_DATE - 30 THEN 'series ended (delisted/acquired/stale)'
+            WHEN (CASE WHEN px.last_px ~ '^\d{4}-\d{2}-\d{2}' THEN LEFT(px.last_px,10)::date END) < CURRENT_DATE - 30 THEN 'series ended (delisted/acquired/stale)'
             WHEN px.first_px > e.filing_date THEN 'series starts after filing'
             ELSE 'series looks live' END AS price_status,
        COUNT(*) AS old_buys_missing_180d, COUNT(DISTINCT e.issuer_cik) AS issuers
@@ -123,7 +147,7 @@ FROM insider_events e
 LEFT JOIN event_outcomes o ON o.issuer_cik=e.issuer_cik AND o.owner_key=e.owner_key
      AND o.accession_number=e.accession_number AND o.side='buy'
 LEFT JOIN px ON px.issuer_cik=e.issuer_cik
-WHERE e.has_buy=1 AND e.filing_date::date < CURRENT_DATE - 365 AND o.excess_return_180d IS NULL
+WHERE e.has_buy=1 AND (CASE WHEN e.filing_date ~ '^\d{4}-\d{2}-\d{2}' THEN LEFT(e.filing_date,10)::date END) < CURRENT_DATE - 365 AND o.excess_return_180d IS NULL
 GROUP BY 1 ORDER BY 2 DESC;
 
 \echo '===== C4. Raw distribution of buy excess returns (look for absurd tails = split/price errors) ====='
@@ -145,8 +169,8 @@ WITH b AS (SELECT DISTINCT issuer_cik FROM insider_events WHERE has_buy=1),
             FROM issuer_prices_daily GROUP BY 1)
 SELECT COUNT(*) AS issuers_with_buys,
        COUNT(px.issuer_cik) AS with_prices,
-       COUNT(*) FILTER (WHERE px.last_px::date >= CURRENT_DATE - 30) AS series_current,
-       COUNT(*) FILTER (WHERE px.last_px::date <  CURRENT_DATE - 30) AS series_ended,
+       COUNT(*) FILTER (WHERE (CASE WHEN px.last_px ~ '^\d{4}-\d{2}-\d{2}' THEN LEFT(px.last_px,10)::date END) >= CURRENT_DATE - 30) AS series_current,
+       COUNT(*) FILTER (WHERE (CASE WHEN px.last_px ~ '^\d{4}-\d{2}-\d{2}' THEN LEFT(px.last_px,10)::date END) <  CURRENT_DATE - 30) AS series_ended,
        COUNT(*) FILTER (WHERE px.n_px < 250) AS under_250_rows
 FROM b LEFT JOIN px USING (issuer_cik);
 
@@ -217,7 +241,7 @@ FROM insider_events WHERE has_buy=1 AND ai_buy_rating IS NOT NULL;
 \echo '  clock 2 = insider_events.ai_computed_at (server clock, latest rating only)'
 \echo '  clock 3 = newest server timestamp inside input_json (lower bound on rating time)'
 WITH x AS (
-  SELECT e.filing_date::date AS fd,
+  SELECT (CASE WHEN e.filing_date ~ '^\d{4}-\d{2}-\d{2}' THEN LEFT(e.filing_date,10)::date END) AS fd,
          CASE WHEN o.generated_at ~ '^\d{4}-\d{2}-\d{2}' THEN LEFT(o.generated_at,10)::date END AS model_clock,
          CASE WHEN e.ai_computed_at ~ '^\d{4}-\d{2}-\d{2}' THEN LEFT(e.ai_computed_at,10)::date END AS server_clock,
          CASE WHEN (o.input_json::jsonb #>> '{issuer_context,market_cap_updated_at}') ~ '^\d{4}-\d{2}-\d{2}'
@@ -287,4 +311,3 @@ LEFT JOIN event_outcomes o ON o.issuer_cik=e.issuer_cik AND o.owner_key=e.owner_
 WHERE e.has_buy=1 AND e.ai_buy_rating IS NOT NULL
 ORDER BY e.filing_date DESC LIMIT 3;
 
-COMMIT;
