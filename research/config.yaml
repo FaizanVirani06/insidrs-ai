@@ -1,0 +1,38 @@
+# Parameters for the research pipeline. Every number that affects a result lives here.
+
+paths:
+  data_dir: research/data        # raw extracts + analysis table (git-ignored)
+  output_dir: research/output    # result tables and plots (git-ignored)
+
+# --- Return construction -----------------------------------------------------
+horizons: [60, 180]              # trading days held
+# next_day = enter at the close of the first trading day AFTER the filing date.
+# Most Form 4s are accepted after the market close, so the filing-day close
+# (what production uses) was often not a price you could have traded at.
+entry: next_day                  # next_day | same_day
+max_entry_gap_days: 7            # no price within this many calendar days of filing -> no entry
+# A price series that stops this many days before the newest price in the whole
+# database is treated as delisted/acquired: the position exits at its last price
+# instead of being dropped (dropping it would be survivorship bias).
+delist_gap_days: 10
+# Daily moves beyond these are treated as likely split/adjustment errors and
+# the event is flagged (not dropped) if one falls inside its holding window.
+suspect_daily_up: 1.5
+suspect_daily_down: -0.6
+
+# --- Which rows count as a qualifying trade ------------------------------------
+filters:
+  min_dollars: 5000              # ignore token purchases
+  min_trade_price: 1.0           # reported transaction price; proxy for penny stocks
+  exclude_amendments: true       # Form 4/A restates an earlier filing
+  exclude_duplicates: true
+  exclude_suspect_prices: true
+
+# --- Point-in-time features -----------------------------------------------------
+cluster_window_days: 14          # other insiders' buys FILED in the prior N days
+
+# --- AI ratings: live vs backfilled ---------------------------------------------
+ratings:
+  live_start: "2026-03-01"       # Gemini scoring ran roughly March-July 2026
+  live_end: "2026-07-31"
+  live_max_lag_days: 7           # rated within N days of the filing = live

@@ -15,23 +15,73 @@ Rules for everything in this folder:
 
 | Phase | What | State |
 |-------|------|-------|
-| 0 | Inspect schema, data gaps, live vs backfilled ratings | in progress |
-| 1 | Build analysis dataset + sanity checks | not started |
+| 0 | Inspect schema, data gaps, live vs backfilled ratings | queries written; awaiting output from the server |
+| 1 | Build analysis dataset + sanity checks | code written, tested on synthetic data only |
 | 2 | Q1 ratings vs returns, Q2 track-record persistence | not started |
 | 3 | Q3 winner features + robustness | not started |
 | 4 | Write-up + product implications | not started |
 
-## Phase 0
+## Layout
 
-Run on the server, from the repo root:
+| File | Purpose |
+|------|---------|
+| `phase0/inspect.sql` | One-off read-only inspection of the production database |
+| `config.yaml` | Every parameter that affects a result |
+| `extract.py` | Postgres -> Parquet (`data/events`, `ratings`, `prices`, `benchmark`) |
+| `build_dataset.py` | Parquet -> `data/analysis.parquet`, one row per (event, side) |
+| `sanity_check.py` | Prints 10 random buys with everything needed to verify them by hand |
+| `tests/` | Unit tests for the return and point-in-time logic; synthetic-data seeder |
+| `analysis/` | One script per research question (Phase 2 onward) |
+
+`data/` and `output/` are git-ignored.
+
+## Running on the server
+
+All commands are run from the repo root. `R` is just a shorthand:
 
 ```bash
-docker compose -f docker-compose.prod.yml exec -T db \
-  psql -U postgres -d insider_platform -f - < research/phase0/inspect.sql > phase0_output.txt 2>&1
+R="docker compose -f docker-compose.prod.yml -f docker-compose.research.yml run --rm research"
 ```
 
-The script runs inside a `READ ONLY` transaction and prints aggregates only.
-`phase0_output.txt` is git-ignored.
+Phase 0 (one-off):
+
+```bash
+docker compose -f docker-compose.prod.yml exec -T db psql -U postgres -d insider_platform -f - < research/phase0/inspect.sql > phase0_output.txt 2>&1
+```
+
+Phase 1:
+
+```bash
+$R python -m pytest research/tests -q
+```
+
+```bash
+$R python -m research.extract
+```
+
+```bash
+$R python -m research.build_dataset
+```
+
+```bash
+$R python -m research.sanity_check
+```
+
+The research container connects with a read-only session and only runs
+`SELECT`s. It is behind the `research` compose profile, so a normal
+`docker compose up` never starts it.
+
+## How returns are built (differences from production)
+
+| | Production (`event_outcomes`) | Research |
+|---|---|---|
+| Entry | close on the filing date | close on the first trading day **after** the filing date |
+| Benchmark window | +N rows in SPY's own series | same calendar dates as the stock |
+| Series ends before horizon | dropped (`insufficient_future_data`) | if the series ended well before the newest price in the DB: kept, exits at last price (`delisted`); otherwise `not_matured` |
+| Split/adjustment breaks | not detected | windows containing a one-day move > +150% or < -60% are flagged and excluded |
+| Track record | all of the insider's trades | only trades whose holding period ended before this filing |
+| Cluster | full 14-day window | other insiders who **filed** in the prior 14 days |
+| Market cap | today's snapshot | snapshot rescaled by price change since entry (approximate) |
 
 ## Known issues found by reading the code (to be confirmed with Phase 0 output)
 

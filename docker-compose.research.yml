@@ -1,0 +1,20 @@
+# Research pipeline: runs on demand next to the production stack, read-only against the DB.
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.research.yml \
+#     run --rm research python -m research.extract
+#
+# The "research" profile means `docker compose up` never starts it.
+services:
+  research:
+    profiles: ["research"]
+    build:
+      context: .
+      dockerfile: research/Dockerfile
+    environment:
+      RESEARCH_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/insider_platform
+    volumes:
+      - ./research:/app/research
+      - ./insider_platform:/app/insider_platform:ro
+    depends_on:
+      db:
+        condition: service_healthy
