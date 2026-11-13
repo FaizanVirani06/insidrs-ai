@@ -187,19 +187,39 @@ def role_of(title, is_officer, is_director, is_ten) -> str:
 # --------------------------------------------------------------------------- #
 # Assembly
 # --------------------------------------------------------------------------- #
-def load_price_index(path):
-    """Return {issuer_cik: (dates, closes)} plus the newest date in the table."""
-    t = pq.read_table(path, read_dictionary=["issuer_cik"])
-    cik = t["issuer_cik"].combine_chunks()
-    codes = cik.indices.to_numpy(zero_copy_only=False)
-    names = cik.dictionary.to_pylist()
-    dates = t["date"].to_numpy().astype(D)
-    closes = t["adj_close"].to_numpy()
-    order = np.lexsort((dates, codes))
-    codes, dates, closes = codes[order], dates[order], closes[order]
-    bounds = np.flatnonzero(np.r_[True, codes[1:] != codes[:-1], True])
-    index = {names[codes[a]]: (dates[a:b], closes[a:b]) for a, b in zip(bounds[:-1], bounds[1:])}
-    return index, dates.max()
+class PriceIndex:
+    """All issuers' price series in three flat arrays (small enough for a 4 GB server).
+
+    get(cik) returns that issuer's (dates, closes), or empty arrays if it has none.
+    """
+
+    def __init__(self, path):
+        t = pq.read_table(path, read_dictionary=["issuer_cik"])
+        cik = t["issuer_cik"].combine_chunks()
+        codes = cik.indices.to_numpy(zero_copy_only=False).astype(np.int32)
+        names = cik.dictionary.to_pylist()
+        days = t["date"].combine_chunks().cast("int32").to_numpy(zero_copy_only=False)  # days since 1970
+        closes = t["adj_close"].combine_chunks().to_numpy(zero_copy_only=False)
+        del t, cik
+        # The extract is written sorted by (issuer, date); only re-sort if it is not.
+        same = codes[1:] == codes[:-1]
+        if not (np.all(codes[1:] >= codes[:-1]) and np.all(days[1:][same] > days[:-1][same])):
+            order = np.lexsort((days, codes))
+            codes, days, closes = codes[order], days[order], closes[order]
+        bounds = np.flatnonzero(np.r_[True, codes[1:] != codes[:-1], True])
+        self._days, self._closes = days, closes
+        self._span = {names[codes[a]]: (a, b) for a, b in zip(bounds[:-1], bounds[1:])}
+        self.global_last = days.max().astype(D)
+
+    def __len__(self):
+        return len(self._span)
+
+    def get(self, cik):
+        span = self._span.get(cik)
+        if span is None:
+            return np.array([], dtype=D), np.array([])
+        a, b = span
+        return self._days[a:b].astype(D), self._closes[a:b]
 
 
 def stack_sides(ev: pd.DataFrame) -> pd.DataFrame:
@@ -259,7 +279,7 @@ def attach_ratings(df: pd.DataFrame, ratings: pd.DataFrame, rcfg: dict) -> pd.Da
                             "shown_buy_n_60", "shown_sell_n_60", "shown_buy_win_60", "shown_buy_n_180"])
 
 
-def build(events: pd.DataFrame, ratings: pd.DataFrame, price_index: dict, global_last,
+def build(events: pd.DataFrame, ratings: pd.DataFrame, price_index, global_last,
           bench_dates, bench_closes, cfg: dict) -> pd.DataFrame:
     df = stack_sides(events)
     df["filing_date"] = pd.to_datetime(df["filing_date"]).dt.normalize()
@@ -280,9 +300,8 @@ def build(events: pd.DataFrame, ratings: pd.DataFrame, price_index: dict, global
     entry_px = np.full(len(df), np.nan)
     mcap_px = np.full(len(df), np.nan)
     mcap_date = pd.to_datetime(df["market_cap_date"]).to_numpy().astype(D)
-    empty = (np.array([], dtype=D), np.array([]))
     for cik, pos in df.groupby("issuer_cik", sort=False).indices.items():
-        dates, closes = price_index.get(cik, empty)
+        dates, closes = price_index.get(cik)
         for h in horizons:
             r = forward_returns(dates, closes, bench_dates, bench_closes, fd[pos], h,
                                 entry=cfg["entry"], max_entry_gap_days=cfg["max_entry_gap_days"],
@@ -384,7 +403,8 @@ def main() -> None:
     bench = pd.read_parquet(data / "benchmark.parquet")
     sym = bench["symbol"].value_counts().idxmax()
     bench = bench[bench["symbol"] == sym].sort_values("date")
-    price_index, global_last = load_price_index(data / "prices.parquet")
+    price_index = PriceIndex(data / "prices.parquet")
+    global_last = price_index.global_last
     print(f"[build] {len(events):,} events, {len(price_index):,} price series, "
           f"benchmark {sym}, newest price {global_last}")
 

@@ -27,9 +27,6 @@ def main() -> None:
     cfg = load_config()
     data = cfg["paths"]["data_dir"]
     df = pd.read_parquet(data / "analysis.parquet")
-    prices = pd.read_parquet(data / "prices.parquet")
-    prices["issuer_cik"] = prices["issuer_cik"].astype(str)
-    prices["date"] = pd.to_datetime(prices["date"])
     bench = pd.read_parquet(data / "benchmark.parquet")
     bench["date"] = pd.to_datetime(bench["date"])
     bench = bench[bench["symbol"] == bench["symbol"].value_counts().idxmax()].set_index("date")["adj_close"]
@@ -39,7 +36,9 @@ def main() -> None:
     sample = pool.sample(min(args.n, len(pool)), random_state=args.seed)
     worst = 0.0
     for _, r in sample.iterrows():
-        px = prices[prices["issuer_cik"] == r["issuer_cik"]].set_index("date")["adj_close"].sort_index()
+        # Read only this issuer's rows (the full price table is too big to load on a small server).
+        one = pd.read_parquet(data / "prices.parquet", filters=[("issuer_cik", "==", r["issuer_cik"])])
+        px = one.set_index(pd.to_datetime(one["date"]))["adj_close"].sort_index()
         # Independent recomputation, written the slow obvious way on purpose.
         after = px[px.index > r["filing_date"]] if cfg["entry"] == "next_day" else px[px.index >= r["filing_date"]]
         p0, d0 = after.iloc[0], after.index[0]
