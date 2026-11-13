@@ -33,3 +33,8 @@ frontend_next_legacy/out/
 # Build outputs
 build/
 dist/
+
+# Research outputs (never commit raw extracts)
+phase0_output.txt
+research/data/
+research/output/
