@@ -66,6 +66,7 @@ def cluster_bootstrap(values: np.ndarray, clusters: np.ndarray, stat, n_boot: in
 
 
 MIN_N_FOR_INFERENCE = 30       # below this, show the numbers but no interval or p-value
+MIN_CLUSTERS = 6               # a bootstrap over fewer months than this is not an interval, it is noise
 
 
 def summarize(df: pd.DataFrame, col: str, cluster_col: str = "month", n_boot: int = 1000) -> dict:
@@ -75,7 +76,7 @@ def summarize(df: pd.DataFrame, col: str, cluster_col: str = "month", n_boot: in
     n = len(x)
     if n == 0:
         return {"n": 0}
-    if n < MIN_N_FOR_INFERENCE:
+    if n < MIN_N_FOR_INFERENCE or len(set(cl)) < MIN_CLUSTERS:
         return {"n": n, "months": len(set(cl)), "mean": float(x.mean()), "median": float(np.median(x)),
                 "hit_rate": float((x > 0).mean())}
     se, lo, hi, k = cluster_bootstrap(x, cl, np.mean, n_boot)
@@ -117,7 +118,7 @@ def information_coefficient(df: pd.DataFrame, signal: str, ret: str, period: str
     monthly = d.groupby(period).apply(
         lambda g: spearman(g[signal], g[ret]) if len(g) >= min_n else np.nan, include_groups=False).dropna()
     m = len(monthly)
-    t = monthly.mean() / (monthly.std(ddof=1) / math.sqrt(m)) if m >= 3 and monthly.std(ddof=1) > 0 else np.nan
+    t = monthly.mean() / (monthly.std(ddof=1) / math.sqrt(m)) if m >= MIN_CLUSTERS and monthly.std(ddof=1) > 0 else np.nan
     return {
         "n": len(d), "ic_pooled": spearman(d[signal], d[ret]), "ic_within_month": spearman(d[signal], demeaned),
         "ic_monthly_mean": float(monthly.mean()) if m else np.nan, "ic_monthly_t": t, "n_months": m,
@@ -131,9 +132,12 @@ def spread(df: pd.DataFrame, ret: str, top: pd.Series, bottom: pd.Series, cluste
     sub = df[top | bottom]
     flag = top[sub.index].to_numpy()
     x = sub[ret].to_numpy(float)
-    if flag.sum() < MIN_N_FOR_INFERENCE or (~flag).sum() < MIN_N_FOR_INFERENCE:
-        return {"n_top": int(flag.sum()), "n_bottom": int((~flag).sum())}
     packed = np.column_stack([x, flag.astype(float)])
+    base = {"n_top": int(flag.sum()), "n_bottom": int((~flag).sum()), "months": sub[cluster_col].nunique()}
+    if min(base["n_top"], base["n_bottom"]) < 5:
+        return base
+    if min(base["n_top"], base["n_bottom"]) < MIN_N_FOR_INFERENCE or base["months"] < MIN_CLUSTERS:
+        return {**base, "spread": float(x[flag].mean() - x[~flag].mean())}
 
     def diff(rows):
         f = rows[:, 1] > 0.5

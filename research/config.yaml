@@ -50,3 +50,4 @@ ratings:
 # --- Analysis -------------------------------------------------------------------
 analysis:
   n_boot: 1000                   # bootstrap resamples for confidence intervals
+  train_end: "2017-12-31"        # tune on filings up to here, test on everything after (never shuffle)

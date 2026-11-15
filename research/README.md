@@ -17,7 +17,7 @@ Rules for everything in this folder:
 |-------|------|-------|
 | 0 | Inspect schema, data gaps, live vs backfilled ratings | done (findings below) |
 | 1 | Build analysis dataset + sanity checks | code written; tested on synthetic data and a handful of real tickers, not yet on the full database |
-| 2 | Q1 ratings vs returns, Q2 track-record persistence | Q1 script written (tested on synthetic data); Q2 not started |
+| 2 | Q1 ratings vs returns, Q2 track-record persistence | Q1 run on real data (results below); Q2 script written (tested on synthetic data) |
 | 3 | Q3 winner features + robustness | not started |
 | 4 | Write-up + product implications | not started |
 
@@ -34,6 +34,7 @@ Rules for everything in this folder:
 | `tests/` | Unit tests for the return and point-in-time logic; synthetic-data seeder |
 | `analysis/stats.py` | Cluster bootstrap, information coefficient, FDR adjustment |
 | `analysis/q1_ratings.py` | Q1: AI rating vs forward excess return, live and backfilled kept apart |
+| `analysis/q2_track_records.py` | Q2: does an insider's past win rate predict their next trade? |
 
 `data/` and `output/` are git-ignored.
 
@@ -77,6 +78,16 @@ Phase 2:
 
 ```bash
 $R python -m research.analysis.q1_ratings
+```
+
+```bash
+$R python -m research.analysis.q2_track_records
+```
+
+After pulling a change to `research/requirements.txt`, rebuild the image first:
+
+```bash
+docker compose -f docker-compose.prod.yml -f docker-compose.research.yml build research
 ```
 
 The research container connects with a read-only session and only runs
@@ -134,6 +145,42 @@ The research container connects with a read-only session and only runs
 **Reported amounts**
 - 213 buys over $1B, 320 with a reported price over $10,000 (parse errors);
   378 buy and 458 sell trade dates carry a timezone suffix.
+
+## Q1 results (run 15 Nov 2026): did the AI ratings work?
+
+Qualifying buys only; excess return = stock minus SPY; means winsorized at
+1%/99%; intervals from a bootstrap that resamples whole months.
+
+**Live ratings (rated within 7 days of filing; Feb-Sep 2026; 60 days; n=4,035, 8 months)**
+
+| Rating | n | Mean excess | Hit rate |
+|---|---|---|---|
+| all buys, same months | 4,776 | -4.7% | 38.2% |
+| <6 | 209 | -2.0% | 41.6% |
+| 6-6.9 | 2,263 | -3.5% | 39.8% |
+| 7-7.9 | 1,465 | -8.1% | 35.0% |
+| 8+ | 98 | -14.1% | 30.6% |
+
+- Top third minus bottom third by rating: -4.7 points (95% CI -7.2 to -1.1).
+- Rank correlation (IC): -0.10 pooled; monthly mean -0.08, negative in 6 of 7 months.
+- Split into parts: the formula baseline has IC -0.08; Gemini's adjustment has IC +0.04 (not significant).
+- **Conclusion: live ratings did not predict outperformance. Over this window they pointed the wrong way.**
+  Seven months in one market regime; no live 180-day result exists yet.
+
+**Backfilled ratings (rated after the outcome; 2024-2025 filings; n=6,190, 23 months)**
+
+- Rating 8+: +3.5% at 60 days, +14.3% at 180 days; top minus bottom third +4.8 / +7.8 points.
+- The positive relation comes entirely from Gemini's adjustment (IC +0.09 / +0.13);
+  the formula baseline is flat-to-negative here too (IC -0.04 / -0.08).
+- 6,131 of 6,190 were shown the insider's stored win rate, which was computed
+  with later outcomes included. The adjustment's IC is higher for filings after
+  the model's knowledge cutoff (+0.17) than before it (+0.06), so the cause is
+  the leaked input, not model memory.
+- **Conclusion: backfilled results are contaminated and are not evidence the ratings work.**
+
+**Coverage check:** buys dropped for lack of a Yahoo price had a median
+production 60-day excess of -1.5% (hit rate 45.0%) versus -1.2% (46.3%) for
+buys kept, so dropping them biases results upward only slightly.
 
 ## Known issues found by reading the code
 
