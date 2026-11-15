@@ -17,8 +17,8 @@ Rules for everything in this folder:
 |-------|------|-------|
 | 0 | Inspect schema, data gaps, live vs backfilled ratings | done (findings below) |
 | 1 | Build analysis dataset + sanity checks | code written; tested on synthetic data and a handful of real tickers, not yet on the full database |
-| 2 | Q1 ratings vs returns, Q2 track-record persistence | Q1 run on real data (results below); Q2 script written (tested on synthetic data) |
-| 3 | Q3 winner features + robustness | not started |
+| 2 | Q1 ratings vs returns, Q2 track-record persistence | Q1 and Q2 run on real data (results below) |
+| 3 | Q3 winner features + robustness | script written (tested on synthetic data) |
 | 4 | Write-up + product implications | not started |
 
 ## Layout
@@ -35,6 +35,7 @@ Rules for everything in this folder:
 | `analysis/stats.py` | Cluster bootstrap, information coefficient, FDR adjustment |
 | `analysis/q1_ratings.py` | Q1: AI rating vs forward excess return, live and backfilled kept apart |
 | `analysis/q2_track_records.py` | Q2: does an insider's past win rate predict their next trade? |
+| `analysis/q3_features.py` | Q3: base rates vs two benchmarks, single features, logistic regression, tree model |
 
 `data/` and `output/` are git-ignored.
 
@@ -82,6 +83,10 @@ $R python -m research.analysis.q1_ratings
 
 ```bash
 $R python -m research.analysis.q2_track_records
+```
+
+```bash
+$R python -m research.analysis.q3_features
 ```
 
 After pulling a change to `research/requirements.txt`, rebuild the image first:
@@ -181,6 +186,40 @@ Qualifying buys only; excess return = stock minus SPY; means winsorized at
 **Coverage check:** buys dropped for lack of a Yahoo price had a median
 production 60-day excess of -1.5% (hit rate 45.0%) versus -1.2% (46.3%) for
 buys kept, so dropping them biases results upward only slightly.
+
+## Q2 results (run 15 Nov 2026): do insider track records persist?
+
+Test period: filings from 2018 on (51,111 qualifying buys). A trade's "record"
+is the insider's win rate on earlier buys whose holding period had ended.
+Spread = next-trade excess return of insiders with past win rate above 60%
+minus those below 40%.
+
+**Officers and directors**
+
+| Min prior trades | 60-day spread (95% CI) | 180-day spread (95% CI) |
+|---|---|---|
+| 1 | +0.1% (-1.9, +1.8) | -2.5% (-6.1, +1.2) |
+| 3 | -0.8% (-3.6, +1.5) | -2.6% (-7.7, +3.1) |
+| 5 | -2.5% (-6.2, +0.8) | -6.6% (-12.8, +0.8) |
+| 10 | -2.6% (-6.4, +1.2) | -7.4% (-14.8, +0.9) |
+
+- Rank correlation between past win rate and next-trade return: 0.02 at both horizons, not significant.
+- Requiring a longer record does not help; the point estimates get worse.
+- **Conclusion: no evidence that officer/director track records persist.**
+
+**Funds and 10% holders**
+
+- 60 days: spread +7.9% (min 1 prior trade), +8.8% (min 3), +5.6% (min 5), +6.4% (min 10);
+  rank correlation about 0.08. Raw p-values 0.002-0.03, FDR-adjusted 0.09-0.17.
+- 180 days: nothing (rank correlation about 0, spreads not significant).
+- **Conclusion: suggestive short-horizon persistence for funds, not established.**
+  It fades by 180 days and may reflect a fund's own continued buying in thin stocks.
+  Needs a check that it is not driven by a handful of funds.
+
+**Shrinkage:** fitted on 2010-2017, average win rate 46.7% (60d) / 43.6% (180d),
+prior strength k = 5.6 / 3.2 trades. k is probably too small: an insider's
+repeat buys in one stock share an outcome, which exaggerates how much
+insiders appear to differ.
 
 ## Known issues found by reading the code
 

@@ -10,6 +10,8 @@ paths:
 price_source: yfinance
 yfinance:
   start: "2009-01-01"
+benchmark: SPY                   # headline benchmark
+small_cap_benchmark: IWM         # Russell 2000 ETF, used as a robustness check
 
 # --- Return construction -----------------------------------------------------
 horizons: [60, 180]              # trading days held
@@ -51,3 +53,4 @@ ratings:
 analysis:
   n_boot: 1000                   # bootstrap resamples for confidence intervals
   train_end: "2017-12-31"        # tune on filings up to here, test on everything after (never shuffle)
+  model_train_end: "2021-12-31"  # Q3 models: fit on filings up to here, score on later ones

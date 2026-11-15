@@ -65,6 +65,37 @@ def cluster_bootstrap(values: np.ndarray, clusters: np.ndarray, stat, n_boot: in
     return float(np.nanstd(draws, ddof=1)), float(lo), float(hi), k
 
 
+def _cluster_sums(clusters: np.ndarray, *cols: np.ndarray):
+    """Per-cluster sums of each column (so a bootstrap can resample clusters without touching rows)."""
+    codes = pd.factorize(clusters)[0]
+    k = codes.max() + 1
+    return k, [np.bincount(codes, weights=c, minlength=k) for c in cols]
+
+
+def boot_mean(values: np.ndarray, clusters: np.ndarray, n_boot: int = 1000, seed: int = 0):
+    """Cluster bootstrap of a mean. Same idea as cluster_bootstrap, but fast."""
+    k, (sx, sn) = _cluster_sums(clusters, values, np.ones(len(values)))
+    if k < 2:
+        return np.nan, np.nan, np.nan, k
+    pick = np.random.default_rng(seed).integers(k, size=(n_boot, k))
+    draws = sx[pick].sum(1) / sn[pick].sum(1)
+    lo, hi = np.percentile(draws, [2.5, 97.5])
+    return float(draws.std(ddof=1)), float(lo), float(hi), k
+
+
+def boot_diff(values: np.ndarray, top: np.ndarray, clusters: np.ndarray, n_boot: int = 1000, seed: int = 0):
+    """Cluster bootstrap of mean(values[top]) - mean(values[~top])."""
+    t = top.astype(float)
+    k, (st, nt, sb, nb) = _cluster_sums(clusters, values * t, t, values * (1 - t), 1 - t)
+    if k < 2:
+        return np.nan, np.nan, np.nan, k
+    pick = np.random.default_rng(seed).integers(k, size=(n_boot, k))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        draws = st[pick].sum(1) / nt[pick].sum(1) - sb[pick].sum(1) / nb[pick].sum(1)
+    lo, hi = np.nanpercentile(draws, [2.5, 97.5])
+    return float(np.nanstd(draws, ddof=1)), float(lo), float(hi), k
+
+
 MIN_N_FOR_INFERENCE = 30       # below this, show the numbers but no interval or p-value
 MIN_CLUSTERS = 6               # a bootstrap over fewer months than this is not an interval, it is noise
 
@@ -79,8 +110,8 @@ def summarize(df: pd.DataFrame, col: str, cluster_col: str = "month", n_boot: in
     if n < MIN_N_FOR_INFERENCE or len(set(cl)) < MIN_CLUSTERS:
         return {"n": n, "months": len(set(cl)), "mean": float(x.mean()), "median": float(np.median(x)),
                 "hit_rate": float((x > 0).mean())}
-    se, lo, hi, k = cluster_bootstrap(x, cl, np.mean, n_boot)
-    _, hlo, hhi, _ = cluster_bootstrap((x > 0).astype(float), cl, np.mean, n_boot)
+    se, lo, hi, k = boot_mean(x, cl, n_boot)
+    _, hlo, hhi, _ = boot_mean((x > 0).astype(float), cl, n_boot)
     mean = float(x.mean())
     return {
         "n": n, "months": k,
@@ -132,18 +163,13 @@ def spread(df: pd.DataFrame, ret: str, top: pd.Series, bottom: pd.Series, cluste
     sub = df[top | bottom]
     flag = top[sub.index].to_numpy()
     x = sub[ret].to_numpy(float)
-    packed = np.column_stack([x, flag.astype(float)])
     base = {"n_top": int(flag.sum()), "n_bottom": int((~flag).sum()), "months": sub[cluster_col].nunique()}
     if min(base["n_top"], base["n_bottom"]) < 5:
         return base
     if min(base["n_top"], base["n_bottom"]) < MIN_N_FOR_INFERENCE or base["months"] < MIN_CLUSTERS:
         return {**base, "spread": float(x[flag].mean() - x[~flag].mean())}
 
-    def diff(rows):
-        f = rows[:, 1] > 0.5
-        return rows[f, 0].mean() - rows[~f, 0].mean() if f.any() and (~f).any() else np.nan
-
-    se, lo, hi, k = cluster_bootstrap(packed, sub[cluster_col].to_numpy(), diff, n_boot)
-    d = float(diff(packed))
+    se, lo, hi, k = boot_diff(x, flag, sub[cluster_col].to_numpy(), n_boot)
+    d = float(x[flag].mean() - x[~flag].mean())
     return {"n_top": int(flag.sum()), "n_bottom": int((~flag).sum()), "spread": d, "lo": lo, "hi": hi,
             "months": k, "p": normal_p(d / se) if se and se > 0 else np.nan}

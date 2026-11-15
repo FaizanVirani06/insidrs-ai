@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 
-from research.common import load_config, price_paths
+from research.common import load_benchmark, load_config, price_paths
 
 D = "datetime64[D]"
 
@@ -395,6 +395,27 @@ def build(events: pd.DataFrame, ratings: pd.DataFrame, price_index, global_last,
     return df
 
 
+def add_alt_benchmark(df: pd.DataFrame, bench, horizons) -> None:
+    """Excess return against a second benchmark over the SAME entry/exit dates.
+
+    Most insider buys are in small companies. Measured against the S&P 500 they
+    can "lose" simply because small caps lagged large caps in those years; a
+    small-cap benchmark (Russell 2000 ETF) separates that from stock selection.
+    """
+    for h in horizons:
+        col = f"excess_smallcap_{h}"
+        df[col] = np.nan
+        if bench is None:
+            continue
+        dates, closes = bench
+        ok = (df[f"ret_{h}"].notna() & df["entry_date"].notna() & df[f"exit_date_{h}"].notna()).to_numpy()
+        b0 = np.searchsorted(dates, df.loc[ok, "entry_date"].to_numpy().astype(D), side="right") - 1
+        b1 = np.searchsorted(dates, df.loc[ok, f"exit_date_{h}"].to_numpy().astype(D), side="right") - 1
+        good = (b0 >= 0) & (b1 >= 0)
+        bret = np.where(good, closes[np.maximum(b1, 0)] / closes[np.maximum(b0, 0)] - 1.0, np.nan)
+        df.loc[ok, col] = df.loc[ok, f"ret_{h}"].to_numpy() - bret
+
+
 def build_report(df: pd.DataFrame, horizons) -> pd.DataFrame:
     """Counts that show where rows are lost, by side and year."""
     g = df.groupby(["side", "year"])
@@ -411,17 +432,18 @@ def main() -> None:
     data, out = cfg["paths"]["data_dir"], cfg["paths"]["output_dir"]
     events = pd.read_parquet(data / "events.parquet")
     ratings = pd.read_parquet(data / "ratings.parquet")
-    prices_path, bench_path = price_paths(cfg)
-    bench = pd.read_parquet(bench_path)
-    sym = bench["symbol"].value_counts().idxmax()
-    bench = bench[bench["symbol"] == sym].sort_values("date")
+    prices_path, _ = price_paths(cfg)
+    sym = cfg["benchmark"]
+    primary = load_benchmark(cfg, sym)
+    if primary is None:
+        raise SystemExit(f"benchmark {sym} not found; run research.fetch_prices first")
     price_index = PriceIndex(prices_path)
     global_last = price_index.global_last
     print(f"[build] prices from {prices_path.name}; {len(events):,} events, {len(price_index):,} price series, "
           f"benchmark {sym}, newest price {global_last}")
 
-    df = build(events, ratings, price_index, global_last,
-               bench["date"].to_numpy().astype(D), bench["adj_close"].to_numpy(), cfg)
+    df = build(events, ratings, price_index, global_last, primary[0], primary[1], cfg)
+    add_alt_benchmark(df, load_benchmark(cfg, cfg["small_cap_benchmark"]), cfg["horizons"])
     df.to_parquet(data / "analysis.parquet", index=False)
 
     (out / "tables").mkdir(exist_ok=True)

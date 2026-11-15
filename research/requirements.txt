@@ -6,3 +6,5 @@ PyYAML>=6
 pytest>=8
 yfinance>=1.0
 matplotlib>=3.8
+statsmodels>=0.14
+scikit-learn>=1.4

@@ -15,7 +15,7 @@ import argparse
 
 import pandas as pd
 
-from research.common import load_config, price_paths
+from research.common import load_benchmark, load_config, price_paths
 
 
 def main() -> None:
@@ -28,9 +28,8 @@ def main() -> None:
     data = cfg["paths"]["data_dir"]
     df = pd.read_parquet(data / "analysis.parquet")
     prices_path, bench_path = price_paths(cfg)
-    bench = pd.read_parquet(bench_path)
-    bench["date"] = pd.to_datetime(bench["date"])
-    bench = bench[bench["symbol"] == bench["symbol"].value_counts().idxmax()].set_index("date")["adj_close"]
+    bd, bc = load_benchmark(cfg, cfg["benchmark"])
+    bench = pd.Series(bc, index=pd.to_datetime(bd))
 
     h = cfg["horizons"][0]
     pool = df[(df["side"] == "buy") & df["qualifies"] & df[f"excess_{h}"].notna()]

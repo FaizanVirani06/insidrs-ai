@@ -28,6 +28,20 @@ def price_paths(cfg: dict):
     return data / "prices.parquet", data / "benchmark.parquet"
 
 
+def load_benchmark(cfg: dict, symbol: str):
+    """Return (dates, closes) for one benchmark symbol, or None if it is not in the file.
+
+    Matches "SPY" and "SPY.US" alike (Yahoo and the production table name it differently).
+    """
+    import pandas as pd
+
+    bench = pd.read_parquet(price_paths(cfg)[1])
+    b = bench[bench["symbol"].str.split(".").str[0] == symbol].sort_values("date")
+    if b.empty:
+        return None
+    return b["date"].to_numpy().astype("datetime64[D]"), b["adj_close"].to_numpy(float)
+
+
 def connect_readonly():
     """Open a connection that cannot write, whatever role it logs in as.
 

@@ -33,7 +33,7 @@ import pyarrow.parquet as pq
 
 from research.common import load_config
 
-BENCH = "SPY"
+BENCHES = ["SPY", "IWM"]     # S&P 500, and Russell 2000 as a small-cap benchmark
 
 
 def yahoo_symbol(ticker: str) -> str:
@@ -77,7 +77,7 @@ def combine(parts_dir, sym_to_ciks: dict, out_path) -> int:
     with pq.ParquetWriter(tmp, schema, compression="zstd") as w:
         for part in sorted(parts_dir.glob("part_*.parquet")):
             d = pd.read_parquet(part)
-            d = d[d["symbol"] != BENCH]
+            d = d[~d["symbol"].isin(BENCHES)]
             if d.empty:
                 continue
             # one ticker can belong to more than one CIK: repeat its rows for each
@@ -116,7 +116,7 @@ def main() -> None:
     ev = ev[ev["symbol"] != ""]
     sym_to_ciks = ev.groupby("symbol")["issuer_cik"].agg(lambda s: sorted(set(s))).to_dict()
     done = set(state["ok"]) | set(state["failed"])
-    todo = [s for s in [BENCH] + sorted(sym_to_ciks) if s not in done]
+    todo = [s for s in BENCHES + sorted(sym_to_ciks) if s not in done]
     print(f"[prices] {len(sym_to_ciks):,} tickers, {len(todo):,} still to download")
 
     start = cfg["yfinance"]["start"]
@@ -142,17 +142,18 @@ def main() -> None:
         time.sleep(args.pause)
 
     n = combine(parts, sym_to_ciks, data / "prices_yf.parquet")
-    bench = pd.concat([pd.read_parquet(p) for p in sorted(parts.glob("part_*.parquet"))
-                       if BENCH in set(pd.read_parquet(p, columns=["symbol"])["symbol"])])
-    bench = bench.loc[bench["symbol"] == BENCH, ["symbol", "date", "adj_close"]].sort_values("date")
-    if bench.empty:
-        raise SystemExit("[prices] SPY download failed; rerun.")
+    frames = [pd.read_parquet(p) for p in sorted(parts.glob("part_*.parquet"))]
+    bench = pd.concat([f[f["symbol"].isin(BENCHES)] for f in frames])[["symbol", "date", "adj_close"]]
+    bench = bench.sort_values(["symbol", "date"])
+    missing = [b for b in BENCHES if b not in set(bench["symbol"])]
+    if missing:
+        raise SystemExit(f"[prices] benchmark download failed for {missing}; rerun with --retry-failed.")
     bench.to_parquet(data / "benchmark_yf.parquet", index=False)
 
     (cfg["paths"]["output_dir"] / "tables").mkdir(exist_ok=True)
     failed = ev[ev["symbol"].isin(state["failed"])].sort_values("symbol")
     failed.to_csv(cfg["paths"]["output_dir"] / "tables" / "price_fetch_failed.csv", index=False)
-    print(f"[prices] wrote {n:,} price rows; SPY through {bench['date'].max()}; "
+    print(f"[prices] wrote {n:,} price rows; benchmarks through {bench['date'].max()}; "
           f"{len(state['failed']):,} tickers had no data (see output/tables/price_fetch_failed.csv)")
 
 
