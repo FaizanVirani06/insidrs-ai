@@ -364,6 +364,7 @@ def build(events: pd.DataFrame, ratings: pd.DataFrame, price_index, global_last,
     mark(df["vwap_price"] < f["min_trade_price"], "penny_stock")
     mark(df["vwap_price"] > f["max_trade_price"], "implausible_price")
     mark(df["filing_delay_days"] < 0, "filed_before_trade")
+    mark(df["filing_delay_days"] > f["max_filing_delay_days"], "stale_filing")
     mark(df["entry_date"].isna(), "no_entry_price")
     if f["exclude_suspect_prices"]:
         mark(df[[f"suspect_{h}" for h in horizons]].any(axis=1), "suspect_price")

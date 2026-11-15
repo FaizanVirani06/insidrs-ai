@@ -33,6 +33,7 @@ filters:
   max_dollars: 1000000000        # larger amounts are parse errors (shares x price blow-ups) or not open-market buys
   min_trade_price: 1.0           # reported transaction price; proxy for penny stocks
   max_trade_price: 10000         # above this the reported price is almost always a parse error
+  max_filing_delay_days: 365     # e.g. a 2017 trade first reported in 2024: not news about the present
   exclude_amendments: true       # Form 4/A restates an earlier filing
   exclude_duplicates: true
   exclude_suspect_prices: true
@@ -45,3 +46,7 @@ ratings:
   live_max_lag_days: 7           # rated within N days of the filing = live (a real forecast)
   backfill_min_lag_days: 90      # rated more than N days after = backfill (60-day outcome already known)
   model_knowledge_cutoff: "2025-01-31"   # Gemini 2.5; earlier filings may be in its training data
+
+# --- Analysis -------------------------------------------------------------------
+analysis:
+  n_boot: 1000                   # bootstrap resamples for confidence intervals

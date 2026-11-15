@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import re
 import shutil
 import time
 
@@ -37,7 +38,11 @@ BENCH = "SPY"
 
 def yahoo_symbol(ticker: str) -> str:
     """SEC/EODHD write share classes as BRK.B; Yahoo writes BRK-B."""
-    return ticker.strip().upper().replace(".", "-").replace("/", "-")
+    # Some filings report several tickers in one field ("UHAL UHALB", "WLY, WLYB",
+    # "Z AND ZG") or a placeholder ("[NONE]"): keep the first real token.
+    tokens = [t for t in re.split(r"[\s,;]+", ticker.strip().upper()) if t]
+    first = re.sub(r"[^A-Z0-9./-]", "", tokens[0]) if tokens else ""
+    return "" if first in ("", "NONE", "NA") else first.replace(".", "-").replace("/", "-")
 
 
 def download(symbols: list[str], start: str) -> pd.DataFrame:
@@ -88,6 +93,7 @@ def combine(parts_dir, sym_to_ciks: dict, out_path) -> int:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--refresh", action="store_true", help="discard earlier downloads and start over")
+    ap.add_argument("--retry-failed", action="store_true", help="try the tickers that failed last time again")
     ap.add_argument("--batch", type=int, default=50)
     ap.add_argument("--pause", type=float, default=2.0, help="seconds to wait between batches")
     args = ap.parse_args()
@@ -101,9 +107,13 @@ def main() -> None:
     parts.mkdir(exist_ok=True)
     state = json.loads(state_path.read_text()) if state_path.exists() else {"ok": [], "failed": [], "next_part": 0}
 
+    if args.retry_failed:
+        state["failed"] = []
+
     ev = pd.read_parquet(data / "events.parquet", columns=["issuer_cik", "ticker"]).dropna().drop_duplicates()
     ev = ev[ev["ticker"].str.strip() != ""]
     ev["symbol"] = ev["ticker"].map(yahoo_symbol)
+    ev = ev[ev["symbol"] != ""]
     sym_to_ciks = ev.groupby("symbol")["issuer_cik"].agg(lambda s: sorted(set(s))).to_dict()
     done = set(state["ok"]) | set(state["failed"])
     todo = [s for s in [BENCH] + sorted(sym_to_ciks) if s not in done]

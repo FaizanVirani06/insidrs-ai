@@ -17,7 +17,7 @@ Rules for everything in this folder:
 |-------|------|-------|
 | 0 | Inspect schema, data gaps, live vs backfilled ratings | done (findings below) |
 | 1 | Build analysis dataset + sanity checks | code written; tested on synthetic data and a handful of real tickers, not yet on the full database |
-| 2 | Q1 ratings vs returns, Q2 track-record persistence | not started |
+| 2 | Q1 ratings vs returns, Q2 track-record persistence | Q1 script written (tested on synthetic data); Q2 not started |
 | 3 | Q3 winner features + robustness | not started |
 | 4 | Write-up + product implications | not started |
 
@@ -32,7 +32,8 @@ Rules for everything in this folder:
 | `build_dataset.py` | Parquet -> `data/analysis.parquet`, one row per (event, side) |
 | `sanity_check.py` | Prints 10 random buys with everything needed to verify them by hand |
 | `tests/` | Unit tests for the return and point-in-time logic; synthetic-data seeder |
-| `analysis/` | One script per research question (Phase 2 onward) |
+| `analysis/stats.py` | Cluster bootstrap, information coefficient, FDR adjustment |
+| `analysis/q1_ratings.py` | Q1: AI rating vs forward excess return, live and backfilled kept apart |
 
 `data/` and `output/` are git-ignored.
 
@@ -70,6 +71,12 @@ $R python -m research.build_dataset
 
 ```bash
 $R python -m research.sanity_check
+```
+
+Phase 2:
+
+```bash
+$R python -m research.analysis.q1_ratings
 ```
 
 The research container connects with a read-only session and only runs
