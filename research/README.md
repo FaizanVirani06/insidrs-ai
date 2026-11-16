@@ -28,7 +28,8 @@ Rules for everything in this folder:
 | `phase0/inspect.sql` | One-off read-only inspection of the production database |
 | `config.yaml` | Every parameter that affects a result |
 | `extract.py` | Postgres -> Parquet (`data/events`, `ratings`, `prices`, `benchmark`) |
-| `fetch_prices.py` | Yahoo Finance -> `data/prices_yf.parquet` (adjusted close, close, volume) + SPY |
+| `fetch_prices.py` | Yahoo Finance -> `data/prices_yf.parquet` (adjusted close, close, volume) + SPY and IWM |
+| `fetch_shares.py` | SEC XBRL -> `data/shares.parquet` (reported shares outstanding, for point-in-time market cap) |
 | `build_dataset.py` | Parquet -> `data/analysis.parquet`, one row per (event, side) |
 | `sanity_check.py` | Prints 10 random buys with everything needed to verify them by hand |
 | `tests/` | Unit tests for the return and point-in-time logic; synthetic-data seeder |
@@ -65,6 +66,10 @@ $R python -m research.extract
 
 ```bash
 $R python -m research.fetch_prices
+```
+
+```bash
+$R python -m research.fetch_shares
 ```
 
 ```bash
@@ -109,7 +114,7 @@ The research container connects with a read-only session and only runs
 | Split/adjustment breaks | not detected | windows containing a one-day move > +150% or < -60% are flagged and excluded |
 | Track record | all of the insider's trades | only trades whose holding period ended before this filing |
 | Cluster | full 14-day window | other insiders who **filed** in the prior 14 days |
-| Market cap | today's snapshot | snapshot rescaled by price change since entry (approximate) |
+| Market cap | today's snapshot | SEC-reported shares outstanding (latest report filed before the Form 4) x the price the insider paid |
 
 ## Phase 0 findings (production database, 13 Nov 2026)
 
@@ -220,6 +225,17 @@ minus those below 40%.
 prior strength k = 5.6 / 3.2 trades. k is probably too small: an insider's
 repeat buys in one stock share an outcome, which exaggerates how much
 insiders appear to differ.
+
+## A leak this study introduced and removed (16 Nov 2026)
+
+The first version of the research market cap rescaled today's market cap by
+the price change since the filing. That quantity contains the stock's future
+return: a company that later collapsed (and diluted) looks "large" at the time
+of the buy. The first Q3 run therefore showed "large caps" losing 14% over 180
+days and market cap as the strongest feature. Those two results (market cap,
+and purchase as a share of market cap) were artifacts and are withdrawn.
+Market cap is now built only from inputs public on the filing date, with a
+unit test that a share count filed on or after the Form 4 date is never used.
 
 ## Known issues found by reading the code
 

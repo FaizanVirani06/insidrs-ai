@@ -104,3 +104,19 @@ def test_cluster_counts_only_other_insiders_who_filed_earlier():
     # a (Jan 1): nobody yet, even though b files 9 days LATER.  b: sees a.  a again: sees b.
     # c (Mar 1): window empty.  issuer y: separate company.
     assert list(out) == [0, 1, 1, 0, 0]
+
+
+def test_market_cap_uses_only_share_counts_filed_before_the_form4():
+    import pandas as pd
+
+    from research.build_dataset import add_pit_market_cap
+
+    df = pd.DataFrame({"issuer_cik": ["x", "x", "x", "y"],
+                       "filing_date": pd.to_datetime(["2020-03-01", "2020-06-15", None, "2020-06-15"]),
+                       "vwap_price": [10.0, 10.0, 10.0, 10.0], "dollars_total": [1e5] * 4})
+    shares = pd.DataFrame({"issuer_cik": ["x", "x"], "filed": pd.to_datetime(["2020-02-01", "2020-06-15"]),
+                           "shares": [1e7, 5e7]})
+    out = add_pit_market_cap(df, shares).set_index(["issuer_cik", "filing_date"])["mcap_pit"]
+    assert out[("x", pd.Timestamp("2020-03-01"))] == 1e8      # Feb report x $10
+    assert out[("x", pd.Timestamp("2020-06-15"))] == 1e8      # the report filed the SAME day is not yet usable
+    assert out.isna().sum() == 2                              # blank date; company with no share data

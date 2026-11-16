@@ -338,12 +338,11 @@ def build(events: pd.DataFrame, ratings: pd.DataFrame, price_index, global_last,
     df["role"] = [role_of(t, o, d, x) for t, o, d, x in
                   zip(df["owner_title"], df["is_officer"], df["is_director"], df["is_ten_percent_owner"])]
     df["log_dollars"] = np.log10(df["dollars_total"].where(df["dollars_total"] > 0))
-    # Stored market cap is TODAY's value. Rescale by the price change since the
-    # filing to approximate market cap at the time (ignores share-count changes).
-    df["mcap_pit_approx"] = df["market_cap"] * df["entry_px_adj"] / mcap_px
-    df["mcap_bucket_pit"] = pd.cut(df["mcap_pit_approx"], [0, 3e8, 2e9, 1e10, np.inf],
-                                   labels=["micro", "small", "mid", "large"]).astype("string")
-    df["dollars_pct_mcap"] = df["dollars_total"] / df["mcap_pit_approx"]
+    # DO NOT USE AS A FEATURE. Today's market cap rescaled by the price change since
+    # the filing. It contains the stock's future return (a stock that later crashed
+    # looks "large" at the time), so anything built on it leaks. Kept only to
+    # document the problem; the point-in-time version is added by add_pit_market_cap.
+    df["mcap_lookahead_approx"] = df["market_cap"] * df["entry_px_adj"] / mcap_px
 
     # Follow a person across companies when the SEC gave us their CIK.
     df["insider_id"] = df["owner_cik"].where(df["owner_cik"].notna() & (df["owner_cik"] != ""), df["owner_key"])
@@ -392,6 +391,30 @@ def build(events: pd.DataFrame, ratings: pd.DataFrame, price_index, global_last,
     df = attach_ratings(df, ratings, cfg["ratings"])
     for c in ["entry_date"] + [f"exit_date_{h}" for h in horizons]:
         df[c] = pd.to_datetime(df[c])
+    return df
+
+
+def add_pit_market_cap(df: pd.DataFrame, shares) -> pd.DataFrame:
+    """Market cap as known on the filing date.
+
+    shares outstanding from the latest 10-Q/10-K filed BEFORE the Form 4
+    x the price the insider reported paying (both unadjusted, both public then).
+    """
+    df = df.sort_values("filing_date", kind="stable").reset_index(drop=True)
+    df["shares_outstanding_pit"] = np.nan
+    if shares is not None and len(shares):
+        sh = shares[["issuer_cik", "filed", "shares"]].sort_values("filed")
+        sh["filed"] = sh["filed"].astype(df["filing_date"].dtype)
+        left = df.loc[df["filing_date"].notna(), ["issuer_cik", "filing_date"]]      # asof-merge cannot take blank dates
+        m = pd.merge_asof(left, sh, left_on="filing_date", right_on="filed",
+                          by="issuer_cik", direction="backward", allow_exact_matches=False,
+                          tolerance=pd.Timedelta(days=550))          # ignore share counts older than ~18 months
+        df.loc[left.index, "shares_outstanding_pit"] = m["shares"].to_numpy()
+    mcap = df["shares_outstanding_pit"] * df["vwap_price"]
+    df["mcap_pit"] = mcap.where((mcap > 1e6) & (mcap < 5e12))        # drop unit errors
+    df["mcap_bucket_pit"] = pd.cut(df["mcap_pit"], [0, 3e8, 2e9, 1e10, np.inf],
+                                   labels=["micro", "small", "mid", "large"]).astype("string")
+    df["dollars_pct_mcap"] = df["dollars_total"] / df["mcap_pit"]
     return df
 
 
@@ -444,6 +467,11 @@ def main() -> None:
 
     df = build(events, ratings, price_index, global_last, primary[0], primary[1], cfg)
     add_alt_benchmark(df, load_benchmark(cfg, cfg["small_cap_benchmark"]), cfg["horizons"])
+    shares_path = data / "shares.parquet"
+    if not shares_path.exists():
+        print("[build] WARNING: data/shares.parquet not found; market cap will be missing. Run research.fetch_shares.")
+    df = add_pit_market_cap(df, pd.read_parquet(shares_path) if shares_path.exists() else None)
+    print(f"[build] point-in-time market cap available for {df['mcap_pit'].notna().mean():.0%} of rows")
     df.to_parquet(data / "analysis.parquet", index=False)
 
     (out / "tables").mkdir(exist_ok=True)

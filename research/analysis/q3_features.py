@@ -11,9 +11,9 @@ Four parts, simplest first:
      years, scored on later years.  Coefficients are per one standard deviation.
   D. Gradient-boosted trees with permutation importance, same time split.
 
-Every feature is something known on the filing date.  Two caveats:
-market cap is an approximation, and the momentum fields come from the
-production price table (which has known bad ticks).
+Every feature is something known on the filing date.  Market cap is SEC-reported
+shares outstanding x the price the insider paid.  One caveat: the momentum
+fields come from the production price table (which has known bad ticks).
 """
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ NUMERIC = {
     "trend_ret_60d": "stock return, prior 60 days",
     "trend_dist_52w_high": "distance below 52-week high",
     "trend_dist_52w_low": "distance above 52-week low",
-    "log_mcap": "market cap (log, approximate)",
+    "log_mcap": "market cap at filing (log)",
     "spy_ret_126d": "S&P 500 return, prior 6 months",
     "filing_delay_days": "days from trade to filing",
     "prior_n_60": "insider's number of earlier buys",
@@ -54,7 +54,7 @@ def load(cfg) -> pd.DataFrame:
     df["period"] = ""
     for lo, hi, name in PERIODS:
         df.loc[df["year"].between(lo, hi), "period"] = name
-    df["log_mcap"] = np.log10(df["mcap_pit_approx"].where(df["mcap_pit_approx"] > 0))
+    df["log_mcap"] = np.log10(df["mcap_pit"].where(df["mcap_pit"] > 0))
     df["pct_holdings_change"] = df["pct_holdings_change"].clip(upper=1000)
     df["mcap_bucket_pit"] = df["mcap_bucket_pit"].fillna("unknown")
     df["sector"] = df["sector"].fillna("unknown")
@@ -122,6 +122,24 @@ def design(df, features, train_mask):
     return X
 
 
+def independent_columns(X: pd.DataFrame, train) -> pd.DataFrame:
+    """Drop columns that are constant or an exact combination of earlier ones.
+
+    Example: every momentum field is missing for the same rows, so their
+    "missing" flags are identical; a regression cannot separate identical columns.
+    """
+    keep, basis = [], np.ones((int(train.sum()), 1))
+    for col in X.columns:
+        trial = np.column_stack([basis, X.loc[train, col].to_numpy()])
+        if np.linalg.matrix_rank(trial) > basis.shape[1]:
+            keep.append(col)
+            basis = trial
+    dropped = [c for c in X.columns if c not in keep]
+    if dropped:
+        print(f"[q3] dropped redundant columns: {', '.join(dropped)}")
+    return X[keep]
+
+
 def models(df, h, cfg) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     import statsmodels.api as sm
     from sklearn.ensemble import HistGradientBoostingClassifier
@@ -133,8 +151,7 @@ def models(df, h, cfg) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     y = (d[ret] > 0).astype(int)
     train = (d["filing_date"] <= pd.Timestamp(cfg["analysis"]["model_train_end"])).to_numpy()
     feats = list(NUMERIC) + list(BINARY)
-    X = design(d, feats, train)
-    X = X.loc[:, X[train].std() > 0]
+    X = independent_columns(design(d, feats, train), train)
 
     # ---- logistic regression, standard errors clustered by month -------------
     with warnings.catch_warnings():
