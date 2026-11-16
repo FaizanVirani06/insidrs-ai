@@ -18,7 +18,7 @@ Rules for everything in this folder:
 | 0 | Inspect schema, data gaps, live vs backfilled ratings | done (findings below) |
 | 1 | Build analysis dataset + sanity checks | code written; tested on synthetic data and a handful of real tickers, not yet on the full database |
 | 2 | Q1 ratings vs returns, Q2 track-record persistence | Q1 and Q2 run on real data (results below) |
-| 3 | Q3 winner features + robustness | script written (tested on synthetic data) |
+| 3 | Q3 winner features + robustness | Q3 run on real data without market cap (results below); Q4 sells script written |
 | 4 | Write-up + product implications | not started |
 
 ## Layout
@@ -37,6 +37,7 @@ Rules for everything in this folder:
 | `analysis/q1_ratings.py` | Q1: AI rating vs forward excess return, live and backfilled kept apart |
 | `analysis/q2_track_records.py` | Q2: does an insider's past win rate predict their next trade? |
 | `analysis/q3_features.py` | Q3: base rates vs two benchmarks, single features, logistic regression, tree model |
+| `analysis/q4_sells.py` | Q4: stock returns after insider sells, versus buys |
 
 `data/` and `output/` are git-ignored.
 
@@ -92,6 +93,10 @@ $R python -m research.analysis.q2_track_records
 
 ```bash
 $R python -m research.analysis.q3_features
+```
+
+```bash
+$R python -m research.analysis.q4_sells
 ```
 
 After pulling a change to `research/requirements.txt`, rebuild the image first:
@@ -225,6 +230,42 @@ minus those below 40%.
 prior strength k = 5.6 / 3.2 trades. k is probably too small: an insider's
 repeat buys in one stock share an outcome, which exaggerates how much
 insiders appear to differ.
+
+## Q3 results (run 16 Nov 2026, market cap not yet available)
+
+Excess return vs the Russell 2000 ETF; 74,734 qualifying buys.
+
+**Base rates**
+- Mean excess -0.1% at 60 days and -1.1% at 180; median -1.7% and -4.4%;
+  45.6% and 43.3% beat the benchmark. The average buy matches its benchmark,
+  the typical buy loses, and a minority of large winners makes up the difference.
+- By period at 180 days: 2010-17 +1.3%, 2018-19 +3.0%, 2020-21 -3.5%, 2022-23 -6.3%, 2024-26 0.0%.
+
+**Single features (top minus bottom bucket, FDR across 24 tests)**
+- Above the 200-day average: +5.2 points at 180 days (FDR p 0.002); above the 50-day: +4.6 (0.003).
+- Far above the 52-week low: +5.1 points at 180 days (FDR p 0.08).
+- Purchase size, purchase as % of holdings, cluster buying, insider's number
+  of earlier buys, market regime: no significant spread.
+
+**Models (fitted on filings through 2021, scored on 2022 onward)**
+
+| Model | Horizon | Test AUC | Base hit rate | Top-20% hit rate | Top minus bottom 20% (95% CI) |
+|---|---|---|---|---|---|
+| Logistic regression | 60d | 0.526 | 43.6% | 47.7% | +2.1 pts (-0.9, +5.1) |
+| Gradient-boosted trees | 60d | 0.546 | 43.6% | 51.7% | +5.3 pts (+2.8, +8.1) |
+| Logistic regression | 180d | 0.538 | 41.7% | 45.3% | +6.9 pts (+1.8, +12.6) |
+| Gradient-boosted trees | 180d | 0.552 | 41.7% | 49.4% | +9.3 pts (+4.2, +14.9) |
+
+- A modest, real out-of-sample ranking signal, mostly from price trend and the
+  recent market return. The top 20% still averages only +1.9% / +1.1% excess:
+  the spread comes mainly from avoiding the worst buys.
+- Logistic coefficients that survive FDR: missing trend data (a company with
+  under a year of price history) lowers the odds of beating the benchmark
+  (odds ratio 0.72 at 60d, 0.67 at 180d); "other officer" raises them at 180d (1.14).
+  Cluster buying is borderline (1.17 at 60d, FDR p 0.07).
+
+**Live AI rating, re-checked against the Russell 2000:** IC -0.09 (was -0.10
+against the S&P 500), so the benchmark does not explain the Q1 result.
 
 ## A leak this study introduced and removed (16 Nov 2026)
 

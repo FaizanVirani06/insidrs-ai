@@ -42,6 +42,7 @@ NUMERIC = {
     "prior_n_60": "insider's number of earlier buys",
 }
 BINARY = {"trend_above_sma_50": "above 50-day average", "trend_above_sma_200": "above 200-day average"}
+COUNTS = {"cluster_n_other", "prior_n_60"}
 CATEGORICAL = {"role": "insider role", "mcap_bucket_pit": "company size", "sector": "sector", "period": "period"}
 PERIODS = [(2009, 2017, "2010-17"), (2018, 2019, "2018-19"), (2020, 2021, "2020-21"), (2022, 2023, "2022-23"),
            (2024, 2030, "2024-26")]
@@ -86,9 +87,11 @@ def single_feature(df, h, n_boot) -> tuple[pd.DataFrame, pd.DataFrame]:
         x = d[col]
         if x.notna().sum() < 200:
             continue
-        if col in BINARY or x.nunique() <= 5:
-            bins = x.where(x.notna()).astype("float").clip(upper=2).map({0.0: "0", 1.0: "1", 2.0: "2+"})
-            order = [b for b in ["0", "1", "2+"] if (bins == b).any()]
+        if col in BINARY or col in COUNTS:
+            # Counts are mostly zero: cutting them into fifths would split the zeros at random.
+            top = 1 if col in BINARY else 3
+            bins = x.clip(upper=top).map(lambda v: None if pd.isna(v) else (f"{int(v)}+" if v >= top and col in COUNTS else str(int(v))))
+            order = sorted(bins.dropna().unique(), key=lambda b: int(b.rstrip("+")))
         else:
             q = pd.qcut(x.rank(method="first"), 5, labels=["Q1 low", "Q2", "Q3", "Q4", "Q5 high"])
             bins, order = q.astype("object"), ["Q1 low", "Q2", "Q3", "Q4", "Q5 high"]
