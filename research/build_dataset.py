@@ -139,15 +139,21 @@ def prior_track_record(owner, filing_date, exit_date, excess):
     return prior_n, prior_w, prior_s
 
 
-def cluster_pit(issuer, owner, filing_date, window_days=14):
+def cluster_pit(issuer, owner, filing_date, window_days=14, accession=None, countable=None):
     """Number of OTHER insiders at the same company whose trade (same side) was
     filed in the previous `window_days` days, up to and including this filing date.
 
     Unlike production's cluster flag this never looks at later filings.
+    accession  if given, people named on the SAME filing are not counted (one
+               fund family often reports through several entities at once).
+    countable  if given, only insiders flagged True are counted (used to count
+               officers and directors but not funds).
     """
     issuer = np.asarray(issuer)
     owner = np.asarray(owner)
     fd = np.asarray(filing_date, dtype=D)
+    acc = np.asarray(accession) if accession is not None else np.arange(len(issuer))
+    ok = np.asarray(countable, dtype=bool) if countable is not None else np.ones(len(issuer), dtype=bool)
     out = np.zeros(len(issuer), dtype=int)
     order = np.lexsort((fd, issuer))
     bounds = np.flatnonzero(np.r_[True, issuer[order][1:] != issuer[order][:-1], True])
@@ -155,13 +161,13 @@ def cluster_pit(issuer, owner, filing_date, window_days=14):
         idx = order[a:b]
         if len(idx) < 2:
             continue
-        d, o = fd[idx], owner[idx]
+        d, o, ac, c = fd[idx], owner[idx], acc[idx], ok[idx]
         lo = np.searchsorted(d, d - np.timedelta64(window_days, "D"), side="left")
         hi = np.searchsorted(d, d, side="right")
         for j in range(len(idx)):
-            others = set(o[lo[j]:hi[j]])
-            others.discard(o[j])
-            out[idx[j]] = len(others)
+            w = slice(lo[j], hi[j])
+            keep = c[w] & (ac[w] != ac[j]) & (o[w] != o[j])
+            out[idx[j]] = len(set(o[w][keep]))
     return out
 
 
@@ -200,14 +206,19 @@ class PriceIndex:
         names = cik.dictionary.to_pylist()
         days = t["date"].combine_chunks().cast("int32").to_numpy(zero_copy_only=False)  # days since 1970
         closes = t["adj_close"].combine_chunks().to_numpy(zero_copy_only=False)
+        dollar_vol = None
+        if "close" in t.column_names and "volume" in t.column_names:      # Yahoo download only
+            dollar_vol = (t["close"].combine_chunks().to_numpy(zero_copy_only=False)
+                          * t["volume"].combine_chunks().to_numpy(zero_copy_only=False)).astype(np.float32)
         del t, cik
         # The extract is written sorted by (issuer, date); only re-sort if it is not.
         same = codes[1:] == codes[:-1]
         if not (np.all(codes[1:] >= codes[:-1]) and np.all(days[1:][same] > days[:-1][same])):
             order = np.lexsort((days, codes))
             codes, days, closes = codes[order], days[order], closes[order]
+            dollar_vol = dollar_vol[order] if dollar_vol is not None else None
         bounds = np.flatnonzero(np.r_[True, codes[1:] != codes[:-1], True])
-        self._days, self._closes = days, closes
+        self._days, self._closes, self._dollar_vol = days, closes, dollar_vol
         self._span = {names[codes[a]]: (a, b) for a, b in zip(bounds[:-1], bounds[1:])}
         self.global_last = days.max().astype(D)
 
@@ -220,6 +231,14 @@ class PriceIndex:
             return np.array([], dtype=D), np.array([])
         a, b = span
         return self._days[a:b].astype(D), self._closes[a:b]
+
+    def median_dollar_volume(self, cik, window=20):
+        """Median daily dollar volume over the `window` trading days BEFORE each date (None if unavailable)."""
+        span = self._span.get(cik)
+        if span is None or self._dollar_vol is None:
+            return None
+        a, b = span
+        return pd.Series(self._dollar_vol[a:b]).rolling(window, min_periods=5).median().shift(1).to_numpy()
 
 
 def stack_sides(ev: pd.DataFrame) -> pd.DataFrame:
@@ -305,6 +324,7 @@ def build(events: pd.DataFrame, ratings: pd.DataFrame, price_index, global_last,
         }
     entry_date = np.full(len(df), np.datetime64("NaT", "D"))
     entry_px = np.full(len(df), np.nan)
+    adv = np.full(len(df), np.nan)
     mcap_px = np.full(len(df), np.nan)
     mcap_date = pd.to_datetime(df["market_cap_date"], errors="coerce").to_numpy().astype(D)
     for cik, pos in df.groupby("issuer_cik", sort=False).indices.items():
@@ -321,12 +341,16 @@ def build(events: pd.DataFrame, ratings: pd.DataFrame, price_index, global_last,
             ok = ~np.isnat(r["entry_date"])
             i = np.searchsorted(dates, r["entry_date"][ok])
             entry_px[pos[ok]] = closes[i]
+            dv = price_index.median_dollar_volume(cik)
+            if dv is not None:
+                adv[pos[ok]] = dv[i]
             # price on the day the market-cap snapshot was taken (for the rescale below)
             j = np.searchsorted(dates, mcap_date[pos], side="right") - 1
             good = (j >= 0) & ~np.isnat(mcap_date[pos])
             mcap_px[pos[good]] = closes[j[good]]
     df["entry_date"] = entry_date
     df["entry_px_adj"] = entry_px
+    df["adv_usd_20d"] = adv            # typical daily dollar volume just before entry (liquidity)
     for h in horizons:
         for k, v in cols[h].items():
             df[f"{k}_{h}"] = v
@@ -374,8 +398,10 @@ def build(events: pd.DataFrame, ratings: pd.DataFrame, price_index, global_last,
     for side in ("buy", "sell"):
         m = ((df["side"] == side) & df["qualifies"]).to_numpy()
         sub = df.loc[m]
-        df.loc[m, "cluster_n_other"] = cluster_pit(sub["issuer_cik"].to_numpy(), sub["insider_id"].to_numpy(),
-                                                   sub["filing_date"].to_numpy(), cfg["cluster_window_days"])
+        df.loc[m, "cluster_n_other"] = cluster_pit(
+            sub["issuer_cik"].to_numpy(), sub["insider_id"].to_numpy(), sub["filing_date"].to_numpy(),
+            cfg["cluster_window_days"], accession=sub["accession_number"].to_numpy(),
+            countable=(sub["role"] != "ten_pct_owner").to_numpy())
         for h in horizons:
             n, w, s = prior_track_record(sub["insider_id"].to_numpy(), sub["filing_date"].to_numpy(),
                                          sub[f"exit_date_{h}"].to_numpy(), sub[f"excess_{h}"].to_numpy())

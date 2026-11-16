@@ -120,3 +120,15 @@ def test_market_cap_uses_only_share_counts_filed_before_the_form4():
     assert out[("x", pd.Timestamp("2020-03-01"))] == 1e8      # Feb report x $10
     assert out[("x", pd.Timestamp("2020-06-15"))] == 1e8      # the report filed the SAME day is not yet usable
     assert out.isna().sum() == 2                              # blank date; company with no share data
+
+
+def test_cluster_ignores_co_filers_on_the_same_form_and_funds():
+    issuer = np.array(["x", "x", "x", "x"])
+    owner = np.array(["fundA", "fundB", "ceo", "director"])
+    filing = np.array(["2020-01-02", "2020-01-02", "2020-01-05", "2020-01-08"], dtype=D)
+    accession = np.array(["f1", "f1", "f2", "f3"])
+    is_person = np.array([False, False, True, True])
+    out = cluster_pit(issuer, owner, filing, 14, accession=accession, countable=is_person)
+    # The two fund entities filed jointly: they are not each other's "cluster".
+    # The CEO sees no earlier officer/director; the director sees the CEO only.
+    assert list(out) == [0, 0, 0, 1]

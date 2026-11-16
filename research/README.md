@@ -18,7 +18,7 @@ Rules for everything in this folder:
 | 0 | Inspect schema, data gaps, live vs backfilled ratings | done (findings below) |
 | 1 | Build analysis dataset + sanity checks | code written; tested on synthetic data and a handful of real tickers, not yet on the full database |
 | 2 | Q1 ratings vs returns, Q2 track-record persistence | Q1 and Q2 run on real data (results below) |
-| 3 | Q3 winner features + robustness | Q3 run on real data without market cap (results below); Q4 sells script written |
+| 3 | Q3 winner features, Q4 sells, robustness | Q3 and Q4 run on real data (results below); robustness script written |
 | 4 | Write-up + product implications | not started |
 
 ## Layout
@@ -38,6 +38,8 @@ Rules for everything in this folder:
 | `analysis/q2_track_records.py` | Q2: does an insider's past win rate predict their next trade? |
 | `analysis/q3_features.py` | Q3: base rates vs two benchmarks, single features, logistic regression, tree model |
 | `analysis/q4_sells.py` | Q4: stock returns after insider sells, versus buys |
+| `analysis/robustness.py` | Fund-concentration checks on the Q2 fund result; returns net of assumed trading costs |
+| `run_all.py` | Runs every step in order; stops at the first failure |
 
 `data/` and `output/` are git-ignored.
 
@@ -266,6 +268,40 @@ Excess return vs the Russell 2000 ETF; 74,734 qualifying buys.
 
 **Live AI rating, re-checked against the Russell 2000:** IC -0.09 (was -0.10
 against the S&P 500), so the benchmark does not explain the Q1 result.
+
+## Q3 update with point-in-time market cap, and Q4 (run 16 Nov 2026)
+
+Market cap (SEC share count x reported trade price) is available for 73% of rows.
+
+- **Company size:** no significant relation. 180-day excess vs Russell 2000:
+  micro -0.9%, small +1.0%, mid -4.6%, large -4.4% (wide intervals).
+  Top-minus-bottom market-cap quintile: -2.8 points (FDR p 0.29).
+  The earlier "large caps lose 14%" was the look-ahead artifact.
+- **Purchase as a share of market cap:** nothing (+0.7 points at 180 days).
+- **Models with market cap included:** tree model AUC 0.547 (60d) / 0.551 (180d);
+  top-minus-bottom 20% +5.3 points (CI +2.8, +8.2) and +6.2 points (CI +0.5, +12.0).
+- **Live AI rating within size groups (60 days, vs Russell 2000):** IC +0.03 large,
+  -0.06 mid, -0.16 small, -0.04 micro. The negative relation is not a size effect.
+
+**Q4, sells (167,834 qualifying sells, excess vs Russell 2000):**
+- Stocks insiders sold returned +0.4% at 60 days and +0.3% at 180: no underperformance.
+- No subgroup is negative: largest 10% by dollars, sold more than 25% of holdings,
+  two or more other insiders also selling, or any role.
+- Stocks sold did slightly better than stocks bought (+0.5 / +1.4 points, not significant).
+- Live AI sell rating vs later return: IC +0.005 (n=17,629). No signal.
+- **Conclusion: sells carry no detectable signal in this data.** Pre-planned
+  (10b5-1) and tax sales are not separated out.
+
+## Scheduled refresh
+
+`research.run_all` re-extracts, re-downloads prices and share counts, rebuilds
+the dataset and reruns every analysis, writing a log to `output/logs/` and a
+status file to `output/last_run.json`. To run it on the 2nd of each month at
+06:00 server time, add this line with `crontab -e` (adjust the path):
+
+```
+0 6 2 * * cd /root/insidersproject && docker compose -f docker-compose.prod.yml -f docker-compose.research.yml run --rm -T research python -m research.run_all >> research/output/cron.log 2>&1
+```
 
 ## A leak this study introduced and removed (16 Nov 2026)
 

@@ -17,8 +17,10 @@ Output: data/shares.parquet (issuer_cik, filed, period_end, shares)
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
+import shutil
 import time
 
 import pandas as pd
@@ -56,7 +58,13 @@ def main() -> None:
     agent = os.environ.get("SEC_USER_AGENT", "").strip()
     if not agent:
         raise SystemExit("Set SEC_USER_AGENT (the SEC requires a contact string for automated requests).")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--refresh", action="store_true", help="discard earlier downloads and start over")
+    args = ap.parse_args()
     parts, state_path = data / "shares_parts", data / "shares_state.json"
+    if args.refresh:
+        shutil.rmtree(parts, ignore_errors=True)
+        state_path.unlink(missing_ok=True)
     parts.mkdir(exist_ok=True)
     state = json.loads(state_path.read_text()) if state_path.exists() else {"done": [], "empty": []}
 
