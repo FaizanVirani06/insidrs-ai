@@ -410,3 +410,105 @@ Filings between 2023-02-27 and 2023-03-31 are excluded.
   issuer), do **not** count as a sale. An exercise with F but no S is "hold".
 - **"Sell"** = an exercise with at least one code S row on the same filing.
 - **Limitation:** a sale reported on a separate Form 4 is not linked to the exercise.
+
+**Amendment 4: holdout timing and execution rules (committed before any Study 3 data was extracted; the commit time is the date).**
+
+*(a) When each Study 3 holdout is opened.* As first written, Holdout A had no
+opening date and Holdout B ("once outcomes have matured") had no end date.
+That would allow running a holdout before its outcomes exist, or looking at
+Holdout B repeatedly as data accumulates. Both are fixed here.
+
+| Stage | Filings | Opened | Why that date |
+|---|---|---|---|
+| Holdout A | 2025-01-01 to 2026-11-30 (unchanged) | once, on or after **2027-03-08** | the last filing's 60-day outcome matures at the 2027-03-01 close; one week is allowed for price-data lag |
+| Holdout B | **2026-12-01 to 2027-05-31** (was: open-ended) | once, on or after **2027-09-07** | the last filing's 60-day outcome matures at the 2027-08-26 close |
+
+- Each holdout is opened **once**. Holdout B has no interim looks.
+- At opening, any holdout filing still missing its primary outcome is reported
+  as a count, by month. It is not silently dropped.
+- Filings after 2027-05-31 are not used to confirm anything in Study 3.
+- The 20- and 180-day secondary outcomes are reported with whatever has
+  matured at opening; they are not used for decisions.
+- `analysis/study3.py` will refuse to open a stage before its date.
+
+*(b) E1–E3: pre-registered execution rules (a separate family from S1–S10).*
+These test whether simple entry and exit timing improves on the standard
+entry. They do not test stock selection or the author's own due diligence;
+that is tested separately by a forward decision log.
+
+**Population.** All qualifying buys (as in `build_dataset.py`), and
+descriptively within the top group of any S hypothesis supported in development.
+
+**Baseline (B0).** Buy at the standard entry: the close of the first trading
+day after the filing date (call it day t0, price P0). Sell at the close of
+t0 + 60 trading days.
+
+**Price data.** These rules need daily highs and lows, which are not stored
+yet. `fetch_prices.py` will add `high_adj` and `low_adj` (High and Low
+× Adj Close / Close, the same basis as `open_adj`). Every stage is re-fetched
+together, before any E rule is computed. A day with no high or low cannot
+trigger an intraday condition.
+
+**Rules.** The parameters are fixed here. Other values may be run only as
+labelled exploratory analysis.
+
+| ID | Rule |
+|---|---|
+| E1 | **Limit entry.** After the t0 close, place a buy limit at L = 0.98 × P0, good for days t0+1 to t0+3. It fills on the first of those days whose low is **below** L, at min(that day's open, L). If it doesn't fill, there is no trade. Exit at the t0+60 close, as in B0. |
+| E2 | **Trailing stop.** Enter as B0. If any close from t0+1 to t0+59 is ≤ 0.85 × the highest close since entry (the entry close included), exit at the next day's open. Otherwise exit at the t0+60 close. |
+| E3 | **Bracket.** Enter as B0, with a target of 1.20 × P0 and a stop of 0.85 × P0, checked on days t0+1 to t0+60. If a day opens at or beyond either level, exit at the open. Otherwise, if the low reaches the stop, exit at the stop; if the high reaches the target, exit at the target. **If both are reached the same day, the stop is assumed to come first.** If neither is reached, exit at the t0+60 close. |
+
+**Outcome (per signal).** V = the stock's return while in the position, minus
+IWM's return over the same period, minus costs. The window is t0 close to
+t0+60 close for every rule. Money that is not in the stock is assumed to be in
+IWM, so it earns zero excess. That makes an unfilled E1 signal V = 0 with no
+cost: missing a winner counts against E1. For fills at an intraday price,
+IWM's leg starts or ends at that day's open. IWM excess is used rather than
+the factor BHAR because these rules change the holding window, and that is the
+return an investor actually gets.
+
+**Costs.** Each executed round trip is charged the round-trip cost for its
+daily-volume bucket in `config.yaml`, the same as B0, including E1's limit
+fills. This is deliberately conservative. A sensitivity run charges E1 fills
+half the cost (no spread crossed on entry); it is reported, not decisive.
+
+**Test.**
+- D = V(rule) − V(B0) for the same signal, winsorized at development 1%/99% cutoffs.
+- Mean D, 95% CI and p from the month-clustered bootstrap (`n_boot`).
+- **Predicted sign: + for E1, E2 and E3** (the author's belief that timing adds value).
+- **Supported in development** (2010–2024): Holm-adjusted p < 0.05 across
+  E1–E3, positive mean D, and the same sign in each development sub-period.
+- **Confirmation:** Holdout B only, under the rules in (a). One-sided, Holm
+  across the rules supported in development, α = 0.05. Holdout A is not used
+  for E1–E3, so its single opening stays limited to S1–S10 and the secondary
+  tests already registered.
+
+**Also reported (descriptive, not tested):**
+- E1's fill rate, and B0's V for filled versus unfilled E1 signals. This shows
+  whether the limit fills mainly on the losers (adverse selection).
+- E1c: like E1, but an unfilled order buys at the t0+3 close.
+- E2 and E3: how often each exit fires, and the mean days held.
+- Every rule by volume bucket.
+
+**Known limitations.**
+- Daily bars do not show the order of prices within a day. E3's "stop first"
+  rule and E1's requirement that the low go below L (not just touch it) lean
+  against the rules.
+- Limit-order queue position and partial fills are not modelled.
+- The cost figures are assumptions, as elsewhere.
+
+*(c) Still to record before extraction (Amendment 5).* The output of
+`phase0/check_10b5.sql` that Amendment 3(a) says will be recorded "in the next
+amendment" goes into Amendment 5 instead. So does the outside registration
+below. Study 3 extraction does not start until Amendment 5 is committed and pushed.
+
+**Amendment 5: pre-extraction record (to be completed and committed before any Study 3 data is extracted).**
+
+*(a) 10b5-1 query output* (`phase0/check_10b5.sql`, run [DATE, TIME UTC]):
+
+[paste both result tables here, unedited]
+
+*(b) Outside timestamp.* This document as of commit [HASH] (the Amendment 4
+commit) was registered at [OSF REGISTRATION URL] on [DATE]. That
+registration, not git, is the independent timestamp for Study 3. Studies 1
+and 2 rely on the GitHub commit history only.
