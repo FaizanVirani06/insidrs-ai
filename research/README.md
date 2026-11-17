@@ -185,6 +185,10 @@ Using each Form 4's exact acceptance time and daily open and close prices
 - **60 days from the first price: +0.59% gross, −1.33% after assumed costs**
   (CI −2.28, −0.30). R2 is not supported.
 
+- **By liquidity (exploratory):** capture is +0.24% to +0.45% in every tier,
+  and negative after one assumed round trip in every tier. The most liquid
+  stocks (over $10M a day) come out at −0.06% (CI −0.23, +0.12), about break-even.
+
 Reading: of the roughly 1.5% disclosure reaction, about two thirds is priced
 before an outsider using daily data can trade, and about a fifth is capturable
 by acting at once. That captured part is smaller than the assumed round-trip

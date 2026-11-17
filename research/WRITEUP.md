@@ -241,6 +241,18 @@ Using each Form 4's exact EDGAR acceptance time and daily open and close prices:
   - Confirmed in the 2025+ holdout: +0.28% (CI +0.06 to +0.50), one-sided p = 0.007.
 - **The captured amount is smaller than the assumed round-trip cost of these
   stocks.** Holding for 60 days from that first price returned −1.33% after costs.
+- **No liquidity tier comes out positive** (exploratory, development sample).
+  Capture is similar at every liquidity level, but after one assumed round trip:
+
+  | Typical daily dollar volume | Capture | After costs (95% CI) |
+  |---|---|---|
+  | Under $100K | +0.42% | −4.6% |
+  | $100K–$1M | +0.45% | −1.5% |
+  | $1M–$10M | +0.29% | −0.7% |
+  | Over $10M | +0.24% | −0.06% (−0.23, +0.12) |
+
+  The most liquid stocks are about break-even, and that verdict depends on the
+  assumed 0.3% cost.
 
 **Conclusion of the follow-up.** Insider purchases contain real information,
 worth about 1.5% over two days. Roughly two-thirds is priced before an outside
