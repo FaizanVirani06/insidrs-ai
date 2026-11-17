@@ -12,6 +12,7 @@ services:
       dockerfile: research/Dockerfile
     environment:
       RESEARCH_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/insider_platform
+      PYTHONUNBUFFERED: "1"                   # print progress immediately, even into a log file
       SEC_USER_AGENT: ${SEC_USER_AGENT:-}      # reused from the app's .env; needed by research.fetch_shares
     volumes:
       - ./research:/app/research
