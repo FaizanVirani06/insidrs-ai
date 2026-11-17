@@ -128,6 +128,29 @@ def assumed_cost(df, cfg) -> pd.Series:
     return cost
 
 
+def exploratory_liquidity(df, cfg, out, n_boot) -> None:
+    """EXPLORATORY, not pre-registered: is the captured reaction larger than trading costs anywhere?"""
+    tiers, lower = cfg["costs"]["round_trip_by_daily_volume"], 0.0
+    df = df.copy()
+    df["tier"] = "unknown"
+    for t in tiers:
+        hi = np.inf if t["max_usd"] is None else t["max_usd"]
+        df.loc[(df["adv_usd_20d"] >= lower) & (df["adv_usd_20d"] < hi), "tier"] = t["label"]
+        lower = hi
+    df["capture_net"] = df["capture"] - df["cost"]          # buy at first price, sell at the standard entry close
+    rows = []
+    for name, g in [("all", df)] + [(t["label"], df[df["tier"] == t["label"]]) for t in tiers]:
+        c = summarize(g[g["capture"].notna()], "capture", n_boot=n_boot)
+        nc = summarize(g[g["capture_net"].notna()], "capture_net", n_boot=n_boot)
+        rows.append({"liquidity": name, "n": c.get("n"), "assumed_cost": g["cost"].mean(),
+                     "capture": c.get("mean"), "capture_lo": c.get("mean_lo"), "capture_hi": c.get("mean_hi"),
+                     "capture_net": nc.get("mean"), "net_lo": nc.get("mean_lo"), "net_hi": nc.get("mean_hi")})
+    t = pd.DataFrame(rows)
+    t.to_csv(out / "realtime_exploratory_liquidity_dev.csv", index=False)
+    print("\n== EXPLORATORY (not pre-registered): capture by liquidity, before and after one round trip ==")
+    print(t.round(4).to_string(index=False))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--open-holdout", action="store_true")
@@ -163,21 +186,26 @@ def main() -> None:
     print(f"\nSample: {tag}, {len(sample):,} of {n_split:,} qualifying buys matched to an acceptance time")
     print(f"Accepted after the date on the filing (late-night filings): {sample['acc_after_filing_date'].mean():.1%}")
 
-    rows = []
-    groups = [("all", sample)] + [(f"session: {k}", g) for k, g in sample.groupby("session")] + \
-             [(k, g) for k, g in sample.groupby("who")]
-    for name, g in groups:
-        row = {"group": name, "n": len(g), "share": len(g) / len(sample)}
-        for c in ("gap", "capture", "rt60", "std60", "rt60_net"):
-            s = summarize(g[g[c].notna()], c, n_boot=n_boot)
-            row.update({c: s.get("mean"), f"{c}_lo": s.get("mean_lo"), f"{c}_hi": s.get("mean_hi")})
-        row["capture_median"] = g["capture"].median()
-        rows.append(row)
-    desc = pd.DataFrame(rows)
-    desc.to_csv(out / f"realtime_by_session_{tag}.csv", index=False)
-    print("\n== Excess return vs IWM: Gap (lost), Capture (gained by acting at once), 60 days from first price ==")
-    show = ["group", "n", "share", "gap", "capture", "capture_lo", "capture_hi", "capture_median", "rt60", "std60", "rt60_net"]
-    print(desc[show].round(4).to_string(index=False))
+    # In the holdout, print only the pre-registered tests: descriptive tables would reveal
+    # 2025+ returns and contaminate the holdout for any later hypothesis.
+    if not args.open_holdout:
+        rows = []
+        groups = [("all", sample)] + [(f"session: {k}", g) for k, g in sample.groupby("session")] + \
+                 [(k, g) for k, g in sample.groupby("who")]
+        for name, g in groups:
+            row = {"group": name, "n": len(g), "share": len(g) / len(sample)}
+            for c in ("gap", "capture", "rt60", "std60", "rt60_net"):
+                s = summarize(g[g[c].notna()], c, n_boot=n_boot)
+                row.update({c: s.get("mean"), f"{c}_lo": s.get("mean_lo"), f"{c}_hi": s.get("mean_hi")})
+            row["capture_median"] = g["capture"].median()
+            rows.append(row)
+        desc = pd.DataFrame(rows)
+        desc.to_csv(out / f"realtime_by_session_{tag}.csv", index=False)
+        print("\n== Excess return vs IWM: Gap (lost), Capture (gained by acting at once), 60 days from first price ==")
+        show = ["group", "n", "share", "gap", "capture", "capture_lo", "capture_hi", "capture_median", "rt60", "std60", "rt60_net"]
+        print(desc[show].round(4).to_string(index=False))
+
+        exploratory_liquidity(sample, cfg, out, n_boot)
 
     tests = []
     for hid, col in (("R1", "capture"), ("R2", "rt60_net")):

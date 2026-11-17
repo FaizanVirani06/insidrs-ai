@@ -170,6 +170,24 @@ The research container connects with a read-only session and only runs
 - 213 buys over $1B, 320 with a reported price over $10,000 (parse errors);
   378 buy and 458 sell trade dates carry a timezone suffix.
 
+## Study 2 results (pre-registered, development sample 2010-2024, run 18 Nov 2026)
+
+Using each Form 4's exact acceptance time and daily open and close prices
+(excess vs IWM):
+
+- **Gap, lost to anyone using daily prices: +0.99%.** For the 65% of filings
+  accepted after the close, this is the overnight move to the next open.
+- **Capture, gained by buying at the first available price instead of the
+  next-day close: +0.33% (95% CI +0.26, +0.41), median +0.09%.** It is the
+  same in every sub-period (+0.34 / +0.34 / +0.32). R1 is supported in development.
+- **60 days from the first price: +0.59% gross, −1.33% after assumed costs**
+  (CI −2.28, −0.30). R2 is not supported.
+
+Reading: of the roughly 1.5% disclosure reaction, about two thirds is priced
+before an outsider using daily data can trade, and about a fifth is capturable
+by acting at once. That captured part is smaller than the assumed round-trip
+cost for most of these stocks.
+
 ## Study 1 results (pre-registered, development sample 2010-2024, run 17 Nov 2026)
 
 **Where the return arrives** (all 56,244 qualifying buys with factor data):

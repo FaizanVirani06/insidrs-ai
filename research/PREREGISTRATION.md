@@ -204,3 +204,22 @@ factor-predicted return) as a secondary outcome and to the window table.
 | H5 infrequent officer/director buyer | +0.2% (−1.0, +1.1) | 0.96 | not supported |
 
 No hypothesis met the development criteria, so none qualifies for the holdout.
+
+**Study 2, development results (run 18 Nov 2026), recorded before the holdout was opened.**
+64,609 of 64,609 development buys matched to an acceptance time. Sessions:
+65% after the close, 29% during market hours, 6% pre-market. None was
+accepted after the date on the filing.
+
+| | Mean (95% CI) | Median | By sub-period | FDR p | Verdict |
+|---|---|---|---|---|---|
+| Gap (lost to a daily-data trader) | +0.99% | | | | descriptive |
+| R1 Capture | +0.33% (+0.26, +0.41) | +0.09% | +0.34 / +0.34 / +0.32 | < 0.0001 | supported in development |
+| R2 60 days from first price, net of costs | −1.33% (−2.28, −0.30) | −2.94% | −0.57 / −1.03 / −1.79 | 0.009 | not supported (significantly negative) |
+
+Only R1 qualifies for the holdout test.
+
+**Display change before opening the holdout (18 Nov 2026).** In
+`--open-holdout` mode, `realtime.py` now prints only the pre-registered test,
+so that 2025+ returns are not revealed for any later hypothesis. An exploratory
+breakdown of capture by liquidity tier was added for the development sample only.
+
