@@ -30,7 +30,7 @@ Rules for everything in this folder:
 | `phase0/inspect.sql` | One-off read-only inspection of the production database |
 | `config.yaml` | Every parameter that affects a result |
 | `extract.py` | Postgres -> Parquet (`data/events`, `ratings`, `prices`, `benchmark`) |
-| `fetch_prices.py` | Yahoo Finance -> `data/prices_yf.parquet` (adjusted close, close, volume) + SPY and IWM |
+| `fetch_prices.py` | Yahoo Finance -> `data/prices_yf.parquet` (adjusted close, close, volume, adjusted open/high/low) + SPY and IWM |
 | `fetch_shares.py` | SEC XBRL -> `data/shares.parquet` (reported shares outstanding, for point-in-time market cap) |
 | `build_dataset.py` | Parquet -> `data/analysis.parquet`, one row per (event, side) |
 | `sanity_check.py` | Prints 10 random buys with everything needed to verify them by hand |
@@ -50,7 +50,10 @@ Rules for everything in this folder:
 | `fetch_filer_13d.py` | Schedule 13D filings made by each 10%-holder buyer (for S10b) |
 | `phase0/check_10b5.sql` | Read-only check of how 10b5-1 plans appear in the Form 4 XML (run before Study 3 extraction) |
 | `build_study3.py` | Study 3 features: earnings releases (8-K 2.02), 13D filings, 10b5-1 flags, option exercises, switchers, accumulation |
-| `analysis/study3.py` | Study 3: pre-registered hypotheses S1-S10 (`--stage dev`, then `A`, then `B`) |
+| `analysis/study3.py` | Study 3: pre-registered hypotheses S1-S10 (`--stage dev`, then `A`, then `B`); refuses holdouts before the Amendment 4(a) dates |
+| `analysis/erules.py` | Amendment 4(b): execution rules E1-E3 against the standard entry (development; holdout B only) |
+| `run.sh` | Host-side entry point on the droplet: refuses a dirty tree, passes the commit hash, appends all output to one summary file |
+| `runner.py` | In-container wrapper used by `run.sh`: prints module, commit, start/end time, elapsed time and peak memory |
 
 `data/` and `output/` are git-ignored.
 
@@ -357,7 +360,7 @@ status file to `output/last_run.json`. To run it on the 2nd of each month at
 06:00 server time, add this line with `crontab -e` (adjust the path):
 
 ```
-0 6 2 * * cd /root/insidersproject && docker compose -f docker-compose.prod.yml -f docker-compose.research.yml run --rm -T research python -m research.run_all >> research/output/cron.log 2>&1
+0 6 2 * * cd /root/insidersproject && SUMMARY=research/output/cron_summary.txt research/run.sh research.run_all
 ```
 
 ## A leak this study introduced and removed (16 Nov 2026)

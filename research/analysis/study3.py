@@ -14,12 +14,29 @@ import numpy as np
 import pandas as pd
 
 from research.analysis.stats import bh_adjust, normal_p, spread
-from research.common import ROOT, load_config
+from research.common import ROOT, load_config, require_clean_commit
 
 pd.set_option("display.width", 220, "display.max_columns", 30)
 PRIMARY = "bhar_ff6_D60"
 SECONDARY = ["bhar_ff6_D20", "bhar_ff6_D180", "ex_iwm_D60"]
-STAGES = {"dev": ("2010-01-01", "2024-12-31"), "A": ("2025-01-01", "2026-11-30"), "B": ("2026-12-01", "2100-01-01")}
+STAGES = {"dev": ("2010-01-01", "2024-12-31"), "A": ("2025-01-01", "2026-11-30"), "B": ("2026-12-01", "2027-05-31")}
+OPEN_ON_OR_AFTER = {"A": dt.date(2027, 3, 8), "B": dt.date(2027, 9, 7)}     # Amendment 4(a), UTC dates
+
+
+def check_stage_date(stage: str, today: dt.date | None = None) -> None:
+    """Refuse to open a holdout before the date fixed in Amendment 4(a)."""
+    if stage not in OPEN_ON_OR_AFTER:
+        return
+    today = today or dt.datetime.now(dt.timezone.utc).date()
+    if today < OPEN_ON_OR_AFTER[stage]:
+        raise SystemExit(f"Refusing to open holdout {stage}: Amendment 4(a) allows it on or after "
+                         f"{OPEN_ON_OR_AFTER[stage]} (UTC); today is {today}.")
+
+
+def missing_by_month(dates: pd.Series, missing: pd.Series) -> pd.Series:
+    """Amendment 4(a): holdout filings still missing their primary outcome, counted by filing month."""
+    m = dates[missing]
+    return m.dt.to_period("M").astype(str).value_counts().sort_index()
 BEFORE = ("2010-01-01", "2023-02-26")               # amendment 3(b): before the 10b5-1 reform
 AFTER = {"dev": ("2023-04-01", "2024-12-31"), "A": ("2025-01-01", "2026-11-30")}
 PREDICTED_SECONDARY = {"S7r": 0, "S8r": -1, "S10b": 1}       # 0 = two-sided
@@ -201,6 +218,11 @@ def main() -> None:
     ap.add_argument("--stage", choices=["dev", "A", "B"], default="dev")
     ap.add_argument("--hypotheses", default="", help="holdout only: the hypotheses supported in development")
     args = ap.parse_args()
+    commit = require_clean_commit()
+    if args.stage != "dev":
+        check_stage_date(args.stage)
+        if os.environ.get("HOLDOUT_CONFIRM") != "yes":
+            raise SystemExit("Opening a holdout spends it. Re-run with HOLDOUT_CONFIRM=yes once development is final.")
     cfg = load_config()
     out = cfg["paths"]["output_dir"] / "tables"
     out.mkdir(exist_ok=True)
@@ -242,14 +264,20 @@ def main() -> None:
         print(res[~res["primary"]][["id", "outcome", "n_top", "n_bottom", "spread", "lo", "hi", "p"]].round(4).to_string(index=False))
         return
 
-    if os.environ.get("HOLDOUT_CONFIRM") != "yes":
-        raise SystemExit("Opening a holdout spends it. Re-run with HOLDOUT_CONFIRM=yes once development is final.")
     keep = [h for h in args.hypotheses.split(",") if h]
     if not keep:
         raise SystemExit("Name the hypotheses supported in development, e.g. --hypotheses S1,S5")
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    in_s = in_stage(ev["filing_date"], args.stage)
+    miss_ev = missing_by_month(ev.loc[in_s, "filing_date"], ev.loc[in_s, PRIMARY].isna())
+    in_a = in_stage(ann["ann_day"], args.stage)
+    miss_ann = missing_by_month(ann.loc[in_a, "ann_day"], ann.loc[in_a, "react3"].isna())
+    print(f"\nHoldout {args.stage}: filings missing the primary outcome, by month: {miss_ev.to_dict()}")
+    print(f"Holdout {args.stage}: earnings releases missing the 3-day reaction, by month: {miss_ann.to_dict()}")
     with open(ROOT / "research" / "HOLDOUT_LOG.md", "a") as f:
-        f.write(f"- {stamp}: Study 3 holdout {args.stage} opened, testing {','.join(keep)}. Commit this line.\n")
+        f.write(f"- {stamp}: Study 3 holdout {args.stage} opened at commit {commit}, testing {','.join(keep)}. "
+                f"Missing primary outcome by month: events {miss_ev.to_dict()}; releases {miss_ann.to_dict()}. "
+                f"Commit this line.\n")
     sec_keep = [h for h in keep if h in PREDICTED_SECONDARY]
     keep = [h for h in keep if h in PREDICTED]
     if sec_keep:

@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 from research.analysis.stats import bh_adjust, normal_p, spread, summarize
-from research.common import ROOT, load_config
+from research.common import ROOT, require_clean_commit, load_config
 
 pd.set_option("display.width", 220, "display.max_columns", 40)
 KEYS = ["issuer_cik", "owner_key", "accession_number", "side"]
@@ -154,6 +154,7 @@ def main() -> None:
     ap.add_argument("--hypotheses", default="H1,H2,H3,H4,H5",
                     help="holdout only: the hypotheses supported in development, e.g. H1,H4")
     args = ap.parse_args()
+    require_clean_commit()
     cfg = load_config()
     out = cfg["paths"]["output_dir"] / "tables"
     out.mkdir(exist_ok=True)

@@ -23,7 +23,7 @@ import pandas as pd
 
 from research.analysis.stats import bh_adjust, summarize
 from research.build_dataset import D, PriceIndex
-from research.common import ROOT, load_benchmark, load_benchmark_open, load_config, price_paths
+from research.common import ROOT, require_clean_commit, load_benchmark, load_benchmark_open, load_config, price_paths
 
 pd.set_option("display.width", 220, "display.max_columns", 30)
 OPEN_MIN, CLOSE_MIN = 9 * 60 + 30, 16 * 60
@@ -156,6 +156,7 @@ def main() -> None:
     ap.add_argument("--open-holdout", action="store_true")
     ap.add_argument("--hypotheses", default="R1,R2")
     args = ap.parse_args()
+    require_clean_commit()
     cfg = load_config()
     out = cfg["paths"]["output_dir"] / "tables"
     out.mkdir(exist_ok=True)

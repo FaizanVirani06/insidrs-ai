@@ -55,6 +55,18 @@ def load_benchmark_open(cfg: dict, symbol: str):
     return b["date"].to_numpy().astype("datetime64[D]"), b["open_adj"].to_numpy(float)
 
 
+def require_clean_commit() -> str:
+    """Refuse to run a development or holdout analysis unless started through research/run.sh,
+    which checks on the host that the working tree has no uncommitted changes to tracked files.
+    Prints and returns the commit hash."""
+    commit = os.environ.get("RESEARCH_GIT_COMMIT", "")
+    if not commit or os.environ.get("RESEARCH_TREE_CLEAN") != "1":
+        raise SystemExit("Refusing to run: start pre-registered analyses with research/run.sh, which records the "
+                         "git commit and checks that the working tree has no uncommitted changes.")
+    print(f"[run] git commit {commit} (working tree clean)")
+    return commit
+
+
 def connect_readonly():
     """Open a connection that cannot write, whatever role it logs in as.
 

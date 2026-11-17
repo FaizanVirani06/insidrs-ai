@@ -206,9 +206,9 @@ class PriceIndex:
         names = cik.dictionary.to_pylist()
         days = t["date"].combine_chunks().cast("int32").to_numpy(zero_copy_only=False)  # days since 1970
         closes = t["adj_close"].combine_chunks().to_numpy(zero_copy_only=False)
-        opens = None
-        if "open_adj" in t.column_names:                                   # Yahoo download only
-            opens = t["open_adj"].combine_chunks().to_numpy(zero_copy_only=False)
+        def col(name):                                                     # Yahoo download only
+            return t[name].combine_chunks().to_numpy(zero_copy_only=False) if name in t.column_names else None
+        opens, highs, lows = col("open_adj"), col("high_adj"), col("low_adj")
         dollar_vol = None
         if "close" in t.column_names and "volume" in t.column_names:      # Yahoo download only
             dollar_vol = (t["close"].combine_chunks().to_numpy(zero_copy_only=False)
@@ -221,8 +221,11 @@ class PriceIndex:
             codes, days, closes = codes[order], days[order], closes[order]
             dollar_vol = dollar_vol[order] if dollar_vol is not None else None
             opens = opens[order] if opens is not None else None
+            highs = highs[order] if highs is not None else None
+            lows = lows[order] if lows is not None else None
         bounds = np.flatnonzero(np.r_[True, codes[1:] != codes[:-1], True])
         self._days, self._closes, self._dollar_vol, self._opens = days, closes, dollar_vol, opens
+        self._highs, self._lows = highs, lows
         self._span = {names[codes[a]]: (a, b) for a, b in zip(bounds[:-1], bounds[1:])}
         self.global_last = days.max().astype(D)
 
@@ -243,6 +246,14 @@ class PriceIndex:
             return None
         a, b = span
         return self._opens[a:b]
+
+    def get_high_low(self, cik):
+        """(adjusted highs, adjusted lows) aligned to get(cik)'s dates, or (None, None) if not downloaded."""
+        span = self._span.get(cik)
+        if span is None or self._highs is None or self._lows is None:
+            return None, None
+        a, b = span
+        return self._highs[a:b], self._lows[a:b]
 
     def median_dollar_volume(self, cik, window=20):
         """Median daily dollar volume over the `window` trading days BEFORE each date (None if unavailable)."""
