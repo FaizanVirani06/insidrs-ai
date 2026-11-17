@@ -117,11 +117,17 @@ def main() -> None:
                   zip(ex["owner_title"], ex["is_officer"], ex["is_director"], ex["is_ten_percent_owner"])]
     ex["insider_id"] = ex["owner_cik"].where(ex["owner_cik"].notna() & (ex["owner_cik"] != ""), ex["owner_key"])
     ex["year"] = ex["filing_date"].dt.year
+    # S9 (amendment 3d): "hold" = an exercise (M) with no open-market sale (non-derivative S) on the filing.
+    # Shares withheld for the exercise price or taxes (F), and other non-S dispositions (e.g. D), are not sales.
     ex["hold"] = ex["n_s"] == 0
     common = KEYS + ["insider_id", "filing_date", "trade_date", "year", "role", "is_ten_percent_owner"]
     events = pd.concat([buys[common + ["last_tx_date", "adv_usd_20d"]], sells[common + ["adv_usd_20d"]],
                         ex[common + ["hold", "n_m", "n_s", "n_f"]]], ignore_index=True)
     events = events.merge(flags, on="accession_number", how="left")
+    # S7/S8 as pre-registered: plan = mentioned in the text OR the 2023+ checkbox ticked
+    has_flags = events["plan_text"].notna()
+    events["plan_10b5_1"] = (events["plan_text"].fillna(False).astype(bool)
+                             | events["plan_box"].fillna(False).astype(bool)).where(has_flags)
     print(f"[study3] {len(buys):,} buys, {len(sells):,} sells, {len(ex):,} option-exercise events")
 
     # ---------------- S3 switcher, S4 accumulation (buys)
@@ -175,6 +181,26 @@ def main() -> None:
                          "filing_date", "d13_day", allow_exact=False)
     events.loc[last.index, "days_since_13d"] = (last["filing_date"] - last["d13_day"]).dt.days.to_numpy()
 
+    # S10b: a Schedule 13D on this company filed BY this buyer (alone or as a group member)
+    events["days_since_own_13d"] = np.nan
+    f13 = data / "filer_13d.parquet"
+    if f13.exists():
+        own = pd.read_parquet(f13)[["filer_cik", "accession_number"]].merge(
+            sec[sec["form"].str.contains("13D")][["issuer_cik", "accession_number", "acceptance_utc"]],
+            on="accession_number")
+        own["d13_day"] = own["acceptance_utc"].dt.tz_convert("America/New_York").dt.tz_localize(None).dt.normalize()
+        own["key"] = own["issuer_cik"] + "|" + own["filer_cik"].astype(str)
+        tb = events[b & (events["is_ten_percent_owner"] == 1)].copy()
+        tb["key"] = tb["issuer_cik"] + "|" + pd.to_numeric(tb["insider_id"], errors="coerce").astype("Int64").astype(str)
+        last = latest_before(tb[["key", "filing_date"]].rename(columns={"key": "issuer_cik"}),
+                             own[["key", "d13_day"]].rename(columns={"key": "issuer_cik"}),
+                             "filing_date", "d13_day", allow_exact=False)
+        events.loc[last.index, "days_since_own_13d"] = (last["filing_date"] - last["d13_day"]).dt.days.to_numpy()
+        print(f"[study3] 10%-holder buys with the buyer's own 13D on the company in the prior year: "
+              f"{int(events['days_since_own_13d'].between(0, 365).sum()):,}")
+    else:
+        print("[study3] filer_13d.parquet not found; S10b skipped (run research.fetch_filer_13d)")
+
     # ---------------- event windows (factor BHAR etc.) for every event
     factors = pd.read_parquet(data / "factors.parquet")
     factors = factors.set_index(pd.DatetimeIndex(pd.to_datetime(factors["date"]).astype("datetime64[ns]")))
@@ -194,7 +220,8 @@ def main() -> None:
     events.to_parquet(data / "study3_events.parquet", index=False)
     print(f"[study3] wrote {len(events):,} events; 60-day factor BHAR for "
           f"{events.groupby('side')['bhar_ff6_D60'].apply(lambda s: f'{s.notna().mean():.0%}').to_dict()}")
-    print("10b5-1 mentioned:", events.groupby("side")["plan_10b5_1"].mean().round(3).to_dict())
+    print("plan flags (share of events):")
+    print(events.groupby("side")[["plan_text", "plan_box", "plan_negated", "plan_10b5_1"]].mean().round(3).to_string())
 
 
 if __name__ == "__main__":

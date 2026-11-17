@@ -80,13 +80,26 @@ ORDER BY ai_output_id
 """
 
 
-# Study 3: filing-level text flags from the Form 4 XML (computed in the database; the XML itself is not copied).
+# Study 3 (amendment 3): filing-level flags from the Form 4 XML, computed in the database
+# (the XML itself is not copied).
+#   plan_box      an element whose name contains "10b5" is 1/true (the 2023+ checkbox)
+#   plan_text     the text mentions 10b5-1 after removing every element whose name contains "10b5"
+#   plan_negated  "not ... pursuant to ... 10b5" (diagnostic)
 FLAGS_SQL = r"""
+WITH d AS (
+  SELECT accession_number, xml_text,
+         regexp_replace(regexp_replace(xml_text,
+             '<([A-Za-z0-9_]*10b5[A-Za-z0-9_]*)[^>]*>[^<]*</\1>', '', 'gi'),
+             '<[A-Za-z0-9_]*10b5[A-Za-z0-9_]*[^>]*/>', '', 'gi') AS stripped
+  FROM filing_documents
+)
 SELECT accession_number,
-       (xml_text ~* '10b5.?1' OR xml_text ~* '<aff10b5One>\s*(1|true)\s*</aff10b5One>') AS plan_10b5_1,
-       (xml_text ~* '(withh(e|o)ld|tax withholding|satisfy (the )?(reporting person.s )?tax|tax obligation|tax liabilit)')
+       (xml_text ~* '<[A-Za-z0-9_]*10b5[A-Za-z0-9_]*[^>]*>\s*(1|true)\s*</') AS plan_box,
+       (stripped ~* '10b5.?1') AS plan_text,
+       (stripped ~* '(not|no)\s+([a-z]+\s+){0,4}pursuant\s+to\s+(a\s+)?(rule\s+)?10b5') AS plan_negated,
+       (stripped ~* '(withh(e|o)ld|tax withholding|satisfy (the )?(reporting person.s )?tax|tax obligation|tax liabilit)')
            AS mentions_tax
-FROM filing_documents
+FROM d
 """
 
 # Study 3: option-exercise events (any filing with a code M transaction), with what else happened on the filing.

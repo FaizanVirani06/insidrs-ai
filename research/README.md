@@ -47,6 +47,8 @@ Rules for everything in this folder:
 | `analysis/h_preregistered.py` | Pre-registered tests H1-H5; development sample unless `--open-holdout` |
 | `fetch_acceptance.py` | Exact EDGAR acceptance times of Form 4s, plus earnings-release 8-Ks and Schedule 13D/13G (SEC submissions data) |
 | `analysis/realtime.py` | Study 2: how much of the disclosure reaction a real-time reader can capture |
+| `fetch_filer_13d.py` | Schedule 13D filings made by each 10%-holder buyer (for S10b) |
+| `phase0/check_10b5.sql` | Read-only check of how 10b5-1 plans appear in the Form 4 XML (run before Study 3 extraction) |
 | `build_study3.py` | Study 3 features: earnings releases (8-K 2.02), 13D filings, 10b5-1 flags, option exercises, switchers, accumulation |
 | `analysis/study3.py` | Study 3: pre-registered hypotheses S1-S10 (`--stage dev`, then `A`, then `B`) |
 

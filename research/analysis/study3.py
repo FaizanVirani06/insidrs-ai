@@ -20,6 +20,9 @@ pd.set_option("display.width", 220, "display.max_columns", 30)
 PRIMARY = "bhar_ff6_D60"
 SECONDARY = ["bhar_ff6_D20", "bhar_ff6_D180", "ex_iwm_D60"]
 STAGES = {"dev": ("2010-01-01", "2024-12-31"), "A": ("2025-01-01", "2026-11-30"), "B": ("2026-12-01", "2100-01-01")}
+BEFORE = ("2010-01-01", "2023-02-26")               # amendment 3(b): before the 10b5-1 reform
+AFTER = {"dev": ("2023-04-01", "2024-12-31"), "A": ("2025-01-01", "2026-11-30")}
+PREDICTED_SECONDARY = {"S7r": 0, "S8r": -1, "S10b": 1}       # 0 = two-sided
 PREDICTED = {"S1": 1, "S2": 1, "S3": 1, "S4": 1, "S5": 1, "S6": 1, "S7": 1, "S8": -1, "S9": 1, "S10": 1}
 
 
@@ -129,6 +132,70 @@ def verdicts(res: pd.DataFrame, stab: pd.DataFrame) -> pd.DataFrame:
     return prim
 
 
+def between(dates: pd.Series, lo: str, hi: str) -> pd.Series:
+    return (dates >= pd.Timestamp(lo)) & (dates <= pd.Timestamp(hi))
+
+
+def one_sided(z: float, sign: int) -> float:
+    if not np.isfinite(z):
+        return np.nan
+    if sign == 0:
+        return normal_p(z)                                   # two-sided
+    z = sign * z
+    return 0.5 * normal_p(z) if z > 0 else 1 - 0.5 * normal_p(z)
+
+
+def secondary(ev: pd.DataFrame, cfg, stage: str, keep=None) -> pd.DataFrame:
+    """Amendment 3: S7r / S8r (did the plan-vs-discretionary gap change after the 2023 reform?) and S10b."""
+    n_boot = cfg["analysis"]["n_boot"]
+    rows = []
+    for hid, side in (("S7r", "buy"), ("S8r", "sell")):
+        if keep and hid not in keep:
+            continue
+        d = ev[(ev["side"] == side) & ev["plan_text"].notna() & ev[PRIMARY].notna()]
+        plan = d["plan_text"].astype(bool)
+        disc = ~plan & ~d["mentions_tax"].fillna(False).astype(bool)
+        bef = between(d["filing_date"], *BEFORE)
+        aft = between(d["filing_date"], *AFTER[stage])
+        for label, plan_after in (("text only (primary)", plan), ("text or checkbox (robustness)",
+                                  plan | d["plan_box"].fillna(False).astype(bool))):
+            disc_after = ~plan_after & ~d["mentions_tax"].fillna(False).astype(bool)
+            sb = spread(d[bef], PRIMARY, disc[bef], plan[bef], n_boot=n_boot)
+            sa = spread(d[aft], PRIMARY, disc_after[aft], plan_after[aft], n_boot=n_boot)
+            diff = sa.get("spread", np.nan) - sb.get("spread", np.nan)
+            se = np.hypot(*[(x.get("hi", np.nan) - x.get("lo", np.nan)) / (2 * 1.96) for x in (sa, sb)])
+            rows.append({"id": hid, "measure": label, "before_gap": sb.get("spread"), "before_n_plan": sb.get("n_bottom"),
+                         "after_gap": sa.get("spread"), "after_n_plan": sa.get("n_bottom"), "change": diff,
+                         "lo": diff - 1.96 * se, "hi": diff + 1.96 * se,
+                         "p": one_sided(diff / se if se > 0 else np.nan, PREDICTED_SECONDARY[hid])})
+            if stage != "dev":
+                break                                          # holdout: primary measure only
+    if not keep or "S10b" in keep:
+        d = ev[(ev["side"] == "buy") & (ev["is_ten_percent_owner"] == 1) & in_stage(ev["filing_date"], stage)
+               & ev[PRIMARY].notna()]
+        act = d["days_since_own_13d"].between(0, 365)
+        s = spread(d, PRIMARY, act, ~act, n_boot=n_boot)
+        se = (s.get("hi", np.nan) - s.get("lo", np.nan)) / (2 * 1.96)
+        rows.append({"id": "S10b", "measure": "buyer's own 13D in prior year minus other 10% holder buys",
+                     "after_n_plan": s.get("n_top"), "change": s.get("spread"), "lo": s.get("lo"), "hi": s.get("hi"),
+                     "p": one_sided(s.get("spread", np.nan) / se if se and se > 0 else np.nan, 1)})
+    return pd.DataFrame(rows)
+
+
+def validation(ev: pd.DataFrame) -> pd.DataFrame:
+    """Amendment 3(b): after the reform (development part only), how often does the footnote text find
+    the trades whose checkbox is ticked?"""
+    d = ev[between(ev["filing_date"], *AFTER["dev"]) & ev["plan_text"].notna() & ev["side"].isin(["buy", "sell"])]
+    rows = []
+    for side, g in d.groupby("side"):
+        t, b = g["plan_text"].astype(bool), g["plan_box"].astype(bool)
+        rows.append({"side": side, "events": len(g), "checkbox_ticked": int(b.sum()), "text_mentions": int(t.sum()),
+                     "both": int((t & b).sum()), "text_finds_share_of_ticked": (t & b).sum() / max(b.sum(), 1),
+                     "ticked_share_of_text": (t & b).sum() / max(t.sum(), 1),
+                     "negated_mentions": int(g["plan_negated"].astype(bool).sum())})
+    return pd.DataFrame(rows)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--stage", choices=["dev", "A", "B"], default="dev")
@@ -162,6 +229,15 @@ def main() -> None:
         print(prim[[c for c in cols if c in prim]].round(4).to_string(index=False))
         print("\n== Sub-period spreads ==")
         print(stab[["id", "period", "n_top", "n_bottom", "spread", "lo", "hi", "p"]].round(4).to_string(index=False))
+        sec = secondary(ev, cfg, "dev")
+        sec.to_csv(out / "study3_dev_secondary.csv", index=False)
+        print("\n== Secondary tests (amendment 3; not in the FDR family) ==")
+        print("S7r/S8r: (discretionary - plan) after the reform minus before; S10b: activist buys")
+        print(sec.round(4).to_string(index=False))
+        val = validation(ev)
+        val.to_csv(out / "study3_dev_plan_validation.csv", index=False)
+        print("\n== Validation, Apr 2023 - Dec 2024: footnote text vs the plan checkbox ==")
+        print(val.round(3).to_string(index=False))
         print("\n== Secondary outcomes (not used for decisions) ==")
         print(res[~res["primary"]][["id", "outcome", "n_top", "n_bottom", "spread", "lo", "hi", "p"]].round(4).to_string(index=False))
         return
@@ -174,6 +250,17 @@ def main() -> None:
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     with open(ROOT / "research" / "HOLDOUT_LOG.md", "a") as f:
         f.write(f"- {stamp}: Study 3 holdout {args.stage} opened, testing {','.join(keep)}. Commit this line.\n")
+    sec_keep = [h for h in keep if h in PREDICTED_SECONDARY]
+    keep = [h for h in keep if h in PREDICTED]
+    if sec_keep:
+        if args.stage != "A":
+            raise SystemExit("S7r/S8r/S10b are pre-registered for Holdout A only")
+        sec = secondary(ev, cfg, "A", sec_keep)
+        sec.to_csv(out / "study3_holdout_A_secondary.csv", index=False)
+        print("\n== Study 3 secondary tests, holdout A (one-sided where a sign was predicted) ==")
+        print(sec.round(4).to_string(index=False))
+    if not keep:
+        return
     res, _ = run(ev, ann, q, cfg, args.stage, keep, stability=False)
     prim = res[res["primary"]].copy()
     se = (prim["hi"] - prim["lo"]) / (2 * 1.96)

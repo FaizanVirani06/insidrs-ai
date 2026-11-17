@@ -22,7 +22,7 @@ REST = [["research.build_dataset"], ["research.build_events"], ["research.sanity
         ["research.analysis.q2_track_records"], ["research.analysis.q3_features"],
         ["research.analysis.q4_sells"], ["research.analysis.robustness"],
         ["research.analysis.h_preregistered"], ["research.analysis.realtime"],
-        ["research.build_study3"], ["research.analysis.study3"]]       # development sample only; never opens the holdout
+        ["research.fetch_filer_13d"], ["research.build_study3"], ["research.analysis.study3"]]       # development sample only; never opens the holdout
 
 
 def main() -> None:
