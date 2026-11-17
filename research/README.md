@@ -18,7 +18,7 @@ Rules for everything in this folder:
 | Phase | What | State |
 |-------|------|-------|
 | 0 | Inspect schema, data gaps, live vs backfilled ratings | done (findings below) |
-| 1 | Build analysis dataset + sanity checks | code written; tested on synthetic data and a handful of real tickers, not yet on the full database |
+| 1 | Build analysis dataset + sanity checks | done (runs on the full database; returns match an independent recomputation) |
 | 2 | Q1 ratings vs returns, Q2 track-record persistence | done |
 | 3 | Q3 winner features, Q4 sells, robustness | done (results below and in WRITEUP.md) |
 | 4 | Write-up + product implications | done: [WRITEUP.md](WRITEUP.md) |
