@@ -1,5 +1,7 @@
 # InsidrsAI research pipeline
 
+**Results: see [WRITEUP.md](WRITEUP.md).** The sections below are the working log.
+
 A read-only quantitative study of the Form 4 data behind InsidrsAI: do the AI
 ratings, per-insider track records, and event features predict forward excess
 returns on open-market insider purchases?
@@ -17,9 +19,9 @@ Rules for everything in this folder:
 |-------|------|-------|
 | 0 | Inspect schema, data gaps, live vs backfilled ratings | done (findings below) |
 | 1 | Build analysis dataset + sanity checks | code written; tested on synthetic data and a handful of real tickers, not yet on the full database |
-| 2 | Q1 ratings vs returns, Q2 track-record persistence | Q1 and Q2 run on real data (results below) |
-| 3 | Q3 winner features, Q4 sells, robustness | Q3 and Q4 run on real data (results below); robustness script written |
-| 4 | Write-up + product implications | not started |
+| 2 | Q1 ratings vs returns, Q2 track-record persistence | done |
+| 3 | Q3 winner features, Q4 sells, robustness | done (results below and in WRITEUP.md) |
+| 4 | Write-up + product implications | done: [WRITEUP.md](WRITEUP.md) |
 
 ## Layout
 
