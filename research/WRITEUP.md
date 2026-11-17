@@ -208,7 +208,47 @@ Insider purchases in this sample were, on average, no better than buying a small
 
 A simple trend filter improves the odds modestly, but it reflects price momentum rather than insider information, and costs absorb most of it. The most useful output of the project is the infrastructure: a point-in-time dataset and test harness that caught four errors, each of which would have produced a convincing false result.
 
-## 8. Implications for the product
+## 8. Follow-up: two pre-registered studies
+
+Both studies were planned in writing and committed before any results
+(`PREREGISTRATION.md`). The development sample was filings from 2010–2024, and
+2025 onward was held out.
+
+**Study 1: where does the return arrive, and does how an insider trades matter?**
+- **Window returns** (56,244 buys). Factor-adjusted (Fama-French five factors
+  plus momentum), buy-and-hold:
+
+  | Window | Return (95% CI) |
+  |---|---|
+  | Trade to the day before filing (only the insider can earn this) | +0.29% (+0.23, +0.35) |
+  | Two-day disclosure window | **+1.58% (+1.33, +1.79)** |
+  | After an outsider can buy, 60 days | +1.69% (+0.41, +3.47), median +0.49% |
+
+  Against the Russell 2000, the post-entry return is near zero.
+- **Five hypotheses failed:** opportunistic versus routine insiders, buying
+  after a dip, a dip after a periodic report, opportunistic buying after a dip,
+  and an officer or director's first buy in two years.
+- **One came out reversed:** routine buyers beat opportunistic ones by 4.8
+  points. It flips sign in one sub-period, and exploration suggests it is
+  driven by a few large 10% holders. It is left as a candidate for future testing.
+
+**Study 2: can a real-time reader capture the disclosure reaction?**
+Using each Form 4's exact EDGAR acceptance time and daily open and close prices:
+- **About 1.0% is gone before the first price an outsider can trade at.** For
+  most filings, accepted after the close, that is the overnight jump to the next open.
+- **Buying at that first price instead of the next-day close captures a further +0.33%.**
+  - Development: 95% CI +0.26 to +0.41, and stable across sub-periods.
+  - Confirmed in the 2025+ holdout: +0.28% (CI +0.06 to +0.50), one-sided p = 0.007.
+- **The captured amount is smaller than the assumed round-trip cost of these
+  stocks.** Holding for 60 days from that first price returned −1.33% after costs.
+
+**Conclusion of the follow-up.** Insider purchases contain real information,
+worth about 1.5% over two days. Roughly two-thirds is priced before an outside
+investor can act on daily data, and the part that can be captured is smaller
+than the cost of trading these mostly small stocks. The information is real; the
+edge for an outside investor is not.
+
+## 9. Implications for the product
 
 **Per-insider track records should not be the headline feature.** For officers and directors, a good record did not predict the next trade at any record length, so presenting it as a reason to follow someone would mislead users. 10% holders are the one group where records carried short-term information. A "fund watch" view framed around 60 days, with a liquidity warning, could be tested, but only after the scheduled job confirms the effect on filings made after this study.
 
@@ -237,6 +277,13 @@ Even with no skill at all, an insider who beats the market 45% of the time on av
 - **Show results after estimated trading costs**, and flag stocks that trade under $100K a day.
 - **Avoid hindsight rankings.** A "best performing insiders" list built from past outcomes selects for luck.
 - **State what the data cannot show:** delisted companies are missing, and past results are not a forecast.
+
+**Speed is the only place value exists.** The follow-up studies show the
+information is priced within about a day. A real-time alert is the most useful
+thing the product can offer, but even an instant reader captured only about
+0.3% on average, which is less than typical trading costs for these stocks.
+That should shape the framing: "know what insiders are doing, as soon as it is
+public", not "trade on it for profit".
 
 **Production fixes this study implies** (the study corrects for them; the live product does not):
 - stored insider statistics include the trade being rated and later ones;

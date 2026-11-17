@@ -180,6 +180,8 @@ Using each Form 4's exact acceptance time and daily open and close prices
 - **Capture, gained by buying at the first available price instead of the
   next-day close: +0.33% (95% CI +0.26, +0.41), median +0.09%.** It is the
   same in every sub-period (+0.34 / +0.34 / +0.32). R1 is supported in development.
+- **Holdout (2025+ filings, opened once for R1): capture +0.28% (CI +0.06, +0.50),
+  one-sided p = 0.007. Confirmed out of sample.**
 - **60 days from the first price: +0.59% gross, −1.33% after assumed costs**
   (CI −2.28, −0.30). R2 is not supported.
 

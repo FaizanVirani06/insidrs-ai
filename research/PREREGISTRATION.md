@@ -223,3 +223,13 @@ Only R1 qualifies for the holdout test.
 so that 2025+ returns are not revealed for any later hypothesis. An exploratory
 breakdown of capture by liquidity tier was added for the development sample only.
 
+**Study 2, holdout result (opened 17 Nov 2026, 16:54 UTC, R1 only).**
+11,238 of 11,243 holdout buys (filed 2025 onward) matched to an acceptance time.
+
+| | Mean (95% CI) | Median | Hit rate | n | One-sided p | Verdict |
+|---|---|---|---|---|---|---|
+| R1 Capture | +0.28% (+0.06, +0.50) | +0.13% | 52.0% | 11,232 (21 months) | 0.0067 | **confirmed** |
+
+The holdout has now been used once, for the capture measure only. Any future
+hypothesis tested on 2025+ data must disclose this.
+
