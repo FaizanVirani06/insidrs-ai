@@ -172,6 +172,88 @@ qualifying buys in the development sample (filed 2010–2024):
 - Opening auctions in small caps have wide spreads; the cost tiers are
   probably optimistic for open entries.
 
+## Study 3: ten hypotheses chosen by the author (18 Nov 2026)
+
+*Added before any data for these definitions was extracted or examined.*
+
+**Samples.**
+
+| Stage | Filings | Use |
+|---|---|---|
+| Development | 2010–2024 | estimation |
+| Holdout A | 2025-01-01 to 2026-11-30 | first confirmation |
+| Holdout B (forward) | 2026-12-01 onward | final confirmation, once outcomes mature |
+
+Prior exposure of Holdout A, disclosed:
+- Its pooled returns entered the Q1–Q4 summaries.
+- It was opened once for Study 2's R1, which displayed only the capture measure.
+
+None of the measures below has been computed on it.
+
+**Primary outcome.** Factor-adjusted buy-and-hold abnormal return (Fama-French
+five factors plus momentum, betas from trading days −269 to −20 relative to the
+trade) from the standard entry (the close of the first trading day after the
+filing date) to 60 trading days later. It is winsorized at development 1%/99%
+cutoffs, separately for buys, sells and option exercises.
+
+The exception is S5, whose outcome is defined there.
+
+- **Secondary outcomes** (not used for decisions): the same at 20 and 180
+  days, and excess return versus IWM at 60 days.
+- **Populations:** qualifying buys and qualifying sells as in `build_dataset.py`.
+  Option-exercise events are defined in S9.
+
+**Hypotheses.**
+
+| ID | Population | Contrast (top minus bottom) | Predicted sign |
+|---|---|---|---|
+| S1 | buys | top minus bottom quintile of the disclosure-window return (BHAR from the close before the filing date to the entry close); quintile cutoffs from development | + (under-reaction) |
+| S2 | buys | price fell between trade and filing (BHAR from the trade-date close to the close before the filing date ≤ −2%) minus price rose (≥ +2%) | + |
+| S3 | buys | "switcher": the insider had ≥ 3 open-market sells and no open-market buys in the 36 months before the trade, minus other buys by insiders with ≥ 1 open-market trade in those 36 months | + |
+| S4 | buys | accumulation: the filing's purchases span ≥ 2 calendar days, or the same insider filed a qualifying buy in the same company in the previous 30 days; minus neither | + |
+| S5 | earnings announcements | 3-day excess return versus IWM around a company's earnings release, with ≥ 1 qualifying officer/director buy filed in the 90 days before the release, minus releases without | + |
+| S6 | buys made 0–30 days after an earnings release | the release's 3-day excess reaction ≤ −5% (buying after an earnings drop), minus > −5% | + |
+| S7 | buys | discretionary (filing does not mention Rule 10b5-1) minus plan purchases (filing mentions 10b5-1 or ticks the 10b5-1 box) | + |
+| S8 | sells | discretionary sells (no 10b5-1 mention and no tax-withholding mention) minus plan sells (10b5-1 mentioned or ticked); outcome is the stock's return | − |
+| S9 | officer/director option exercises | exercise-and-hold (an M transaction and no open-market S in the same filing) minus exercise-and-sell (M with S) | + |
+| S10 | buys by 10% holders | an initial or amended Schedule 13D on the company accepted in the 365 days before the filing date (active intent), minus no 13D | + |
+
+**Definitions and data.**
+- **Earnings releases:** 8-K filings listing item 2.02, from SEC submissions
+  data, with exact acceptance times.
+- **Announcement day:** the acceptance day if accepted on a trading day before
+  16:00 New York time, otherwise the next trading day.
+- **3-day window:** the close two trading days before the announcement day to
+  the close one trading day after.
+- **Filing-text flags** (10b5-1, tax withholding) are filing-level text
+  searches of the Form 4 XML, so they apply to every reporting person on that filing.
+- **Option exercises:** filings with an M transaction, excluding amendments.
+  There is no size filter. The trade date is the earliest transaction date in the filing.
+- **"Open-market trades"** for S3 are code P and S events (amendments and
+  duplicates excluded), counted only if filed before the current filing.
+
+**Tests and decision rules.**
+- **Inference:** difference in means, 95% CI and two-sided p from the
+  month-clustered bootstrap; Benjamini–Hochberg across S1–S10.
+- **Supported in development** requires:
+  - FDR p < 0.05;
+  - the predicted sign;
+  - the same sign in each development sub-period (2010–14, 2015–19, 2020–24).
+- **Holdout A:** only supported hypotheses; one-sided in the predicted
+  direction, Holm-adjusted, α = 0.05; only the tests are printed.
+- **Holdout B:** the same tests rerun once outcomes have matured. A hypothesis
+  is called confirmed only if it passes both holdouts.
+- **After costs:** each top group's mean net of assumed costs is reported
+  (for S8, the short side is not costed).
+
+**Known limitations, stated in advance.**
+- **Text flags are crude.** A filing can mention 10b5-1 for one transaction but not another.
+- **Plan purchases are rare,** so S7 may have little power.
+- **Schedule 13D is matched to the company, not to the buyer,** so S10 tests
+  "a 10% holder buying in a company under active ownership", not "the activist buying".
+- **Earnings releases before EDGAR item tagging** may be missing, so coverage
+  is checked and reported by year.
+
 ## Amendments
 
 **Amendment 1 (17 Nov 2026, after the first development run).** Added a
