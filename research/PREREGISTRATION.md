@@ -321,3 +321,92 @@ S4's "the filing's purchases span ≥ 2 calendar days" is implemented as
 purchases on two or more different calendar days (last transaction date after
 the first). The option-exercise events' liquidity for the cost estimate is the
 same 20-day median dollar volume used elsewhere.
+
+**Amendment 2: date corrections (17 Nov 2026, committed after 17:51 UTC).**
+Several dates above were typed incorrectly as 18 Nov. The git commit times,
+which are what this document relies on, are authoritative. The earlier text is
+left unchanged.
+
+| Text above | Correct date | Commit |
+|---|---|---|
+| "Study 3 … (18 Nov 2026)" | 17 Nov 2026, 17:14:27 UTC | `4b1cfa2` |
+| "Study 2, development results (run 18 Nov 2026), recorded before the holdout was opened" | run and recorded 17 Nov 2026, committed 16:50:40 UTC, before the holdout was opened at 16:54 UTC (`HOLDOUT_LOG.md`) | `ae669f9` |
+| "Display change before opening the holdout (18 Nov 2026)" | 17 Nov 2026, 16:50:40 UTC | `ae669f9` |
+| "Study 3 clarification (18 Nov 2026 …)" | 17 Nov 2026, 17:18:18 UTC | `6714c53` |
+
+This branch has never been force-pushed, and will not be, so these commit
+times can be checked on GitHub.
+
+**Amendment 3: additions to Study 3 (17 Nov 2026, before any Study 3 data was extracted).**
+
+*(a) Plan flags, measured two ways.* Since April 2023, Form 4 has a checkbox
+for trades made under a Rule 10b5-1 plan. Before that, plans appear only in
+free-text footnotes. Three filing-level flags replace the single flag:
+
+- **`plan_text`:** after removing every XML element whose name contains "10b5",
+  the filing text mentions "10b5-1" (any separator).
+- **`plan_box`:** an XML element whose name contains "10b5" has the value 1 or true.
+- **`plan_negated`** (diagnostic only): the text says "not … pursuant to …
+  10b5-1" or similar.
+
+S7 and S8 keep their pre-registered definition: plan = `plan_text` or `plan_box`.
+
+Before extraction, a read-only query counts, by year, filings that mention
+10b5-1, filings with an element named like the checkbox, and negated mentions.
+It also lists the element names found in 2023+ filings. The output is recorded
+in the next amendment.
+
+*(b) S7r and S8r, secondary tests: did the 2023 rule change alter the
+plan-versus-discretionary gap?*
+
+| | Before the reform | After the reform |
+|---|---|---|
+| Filed | 2010-01-01 to 2023-02-26 | 2023-04-01 onward |
+
+Filings between 2023-02-27 and 2023-03-31 are excluded.
+
+- **Consistent measure in both periods:** plan = `plan_text`; discretionary =
+  not `plan_text` and no tax-withholding mention.
+- **S8r** (sells) = (discretionary − plan)_after − (discretionary − plan)_before,
+  on the primary outcome. **Predicted sign: negative.** If the reform made plan
+  sells less informative, returns after plan sells rise relative to
+  discretionary sells.
+- **S7r** (buys): the same contrast, two-sided, with no predicted sign.
+- **Inference:** each period's spread is estimated with the month-clustered
+  bootstrap; the difference is tested with a normal approximation
+  (SE = √(SE_before² + SE_after²)).
+- **Development:** "after" is 2023-04-01 to 2024-12-31.
+- **Holdout A:** "after" is 2025-01-01 to 2026-11-30, compared with the same
+  development "before" estimate. One-sided for S8r.
+- **Status:** these are not part of the S1–S10 FDR family. An effect is called
+  supported only if it is significant in the predicted direction in development
+  and in Holdout A.
+- **Power is limited:** about 21 post-reform months in development and 23 in Holdout A.
+- **Robustness (reported, not decisive):** "after" plan = `plan_text` or `plan_box`.
+- **Validation (descriptive):** for April 2023 onward, a cross-tabulation of
+  `plan_text` against `plan_box` for buys and sells. It shows how much of the
+  checkbox population the footnote measure finds, which bounds how noisy the
+  "before" plan group is.
+
+*(c) S10b, secondary: activist buys matched to the buyer.*
+- **Data:** for each insider CIK that appears as a 10% holder on a qualifying
+  buy, download that CIK's own SEC submissions (filer side) and keep its
+  Schedule 13D and 13D/A accession numbers.
+- **Definition:** a buy is an **activist buy** if the buyer filed, alone or as
+  a group member, a Schedule 13D or 13D/A on the same company (the same
+  accession number appears in the buyer's and the company's submissions),
+  accepted before the Form 4 filing date and within the 365 days before it.
+- **Contrast:** activist buys minus other 10%-holder buys, on the primary
+  outcome. Predicted sign +.
+- **Status:** reported alongside S10, not in the FDR family; same support rule as S8r.
+- **Limitation:** a fund family that files the 13D through a different legal
+  entity from the one on the Form 4 is not matched.
+
+*(d) S9, explicit treatment of code F and other non-sale codes.*
+- **"Hold"** = the filing has an option exercise (code M) and no open-market
+  sale (code S, non-derivative) by that reporting person.
+- **Shares withheld** to pay the exercise price or taxes (code F), and any other
+  disposition that is not code S (for example code D, a disposition to the
+  issuer), do **not** count as a sale. An exercise with F but no S is "hold".
+- **"Sell"** = an exercise with at least one code S row on the same filing.
+- **Limitation:** a sale reported on a separate Form 4 is not linked to the exercise.

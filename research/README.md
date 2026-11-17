@@ -172,7 +172,7 @@ The research container connects with a read-only session and only runs
 - 213 buys over $1B, 320 with a reported price over $10,000 (parse errors);
   378 buy and 458 sell trade dates carry a timezone suffix.
 
-## Study 2 results (pre-registered, development sample 2010-2024, run 18 Nov 2026)
+## Study 2 results (pre-registered, development sample 2010-2024, run 17 Nov 2026)
 
 Using each Form 4's exact acceptance time and daily open and close prices
 (excess vs IWM):
