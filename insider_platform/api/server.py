@@ -24,6 +24,7 @@ from insider_platform.ai.settings import (
     is_ai_classification_enabled,
     set_ai_classification_enabled,
 )
+from insider_platform.compute.stats import get_event_stats
 from insider_platform.compute.trade_plan import compute_trade_plan_for_event
 from insider_platform.compute.ticker_validation import get_cached_validation, get_validation_status, validate_issuer_ticker
 
@@ -2372,13 +2373,10 @@ def get_event(
             (cik, owner_key, accession_number),
         ).fetchall()
 
-        stats = conn.execute(
-            """
-            SELECT * FROM insider_issuer_stats
-            WHERE issuer_cik=? AND owner_key=?
-            """,
-            (cik, owner_key),
-        ).fetchall()
+        # Point-in-time track record: only this insider's trades whose holding period ended
+        # before this event's filing date (never this trade or later ones).
+        event_stats = get_event_stats(conn, cfg, cik, owner_key, accession_number, event.get("filing_date"))
+        stats = [event_stats["buy"], event_stats["sell"]]
         if ticker_validation and ticker_validation.get("status") == "invalid":
             outcomes = []
             stats = []

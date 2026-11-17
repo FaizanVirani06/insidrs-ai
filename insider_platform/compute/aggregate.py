@@ -32,19 +32,11 @@ def aggregate_accession(conn: Any, cfg: Config, accession_number: str) -> List[E
     ).fetchone()
     ticker = issuer["current_ticker"] if issuer is not None else None
 
-    # Market cap snapshot (optional): pull from cache so new events get it even if MCAP job ran earlier
+    # Event market cap is point-in-time and written by COMPUTE_MARKET_CAP_PIT_FOR_ISSUER
+    # (compute/market_cap_pit.py). Never copy today's market_cap_cache snapshot onto an event.
     market_cap = None
     market_cap_bucket = None
     market_cap_updated_at = None
-    if ticker:
-        m = conn.execute(
-            "SELECT market_cap, market_cap_bucket, market_cap_updated_at FROM market_cap_cache WHERE ticker=?",
-            (ticker,),
-        ).fetchone()
-        if m is not None:
-            market_cap = m["market_cap"]
-            market_cap_bucket = m["market_cap_bucket"]
-            market_cap_updated_at = m["market_cap_updated_at"]
 
     owner_keys = [
         r["owner_key"]
@@ -239,7 +231,7 @@ def aggregate_accession(conn: Any, cfg: Config, accession_number: str) -> List[E
                 cluster_flag_sell=NULL,
                 cluster_id_sell=NULL,
 
-                -- Keep market cap snapshot if we have it (do not overwrite with NULL)
+                -- Keep the point-in-time market cap (recomputed after aggregation)
                 market_cap=COALESCE(excluded.market_cap, insider_events.market_cap),
                 market_cap_bucket=COALESCE(excluded.market_cap_bucket, insider_events.market_cap_bucket),
                 market_cap_updated_at=COALESCE(excluded.market_cap_updated_at, insider_events.market_cap_updated_at)

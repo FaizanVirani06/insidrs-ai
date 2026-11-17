@@ -300,7 +300,8 @@ export function AdminAiInputsPanel({ input }: AdminAiInputsPanelProps) {
     ["Beta", formatDecimal(fundamentals?.beta, 2)],
     ["EPS", formatDecimal(fundamentals?.eps, 2)],
     ["P/E ratio", formatDecimal(fundamentals?.pe_ratio, 2)],
-    ["Shares outstanding", formatIntValue(fundamentals?.shares_outstanding)],
+    ["Shares outstanding", formatIntValue(issuerContext?.shares_outstanding ?? fundamentals?.shares_outstanding)],
+    ["Shares reported (SEC filed)", toText(issuerContext?.market_cap_as_of)],
     ["Updated", toText(fundamentals?.updated_at ?? issuerContext?.market_cap_updated_at)],
   ];
 
@@ -336,6 +337,7 @@ export function AdminAiInputsPanel({ input }: AdminAiInputsPanelProps) {
   ];
 
   const buyStatsRows: DisplayRow[] = [
+    ["As of", toText(input?.insider_stats?.buy?.as_of_date)],
     ["Eligible 60d sample", formatIntValue(input?.insider_stats?.buy?.eligible_n_60d)],
     ["Eligible 180d sample", formatIntValue(input?.insider_stats?.buy?.eligible_n_180d)],
     ["Avg return 60d", formatPercentAuto(input?.insider_stats?.buy?.avg_return_60d)],
@@ -345,6 +347,7 @@ export function AdminAiInputsPanel({ input }: AdminAiInputsPanelProps) {
   ];
 
   const sellStatsRows: DisplayRow[] = [
+    ["As of", toText(input?.insider_stats?.sell?.as_of_date)],
     ["Eligible 60d sample", formatIntValue(input?.insider_stats?.sell?.eligible_n_60d)],
     ["Eligible 180d sample", formatIntValue(input?.insider_stats?.sell?.eligible_n_180d)],
     ["Avg return 60d", formatPercentAuto(input?.insider_stats?.sell?.avg_return_60d)],

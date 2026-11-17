@@ -9,6 +9,8 @@ from typing import Any, Dict, Optional, Tuple, List
 from insider_platform.ai.gemini import generate_content
 from insider_platform.ai.prompt import build_ai_prompt
 from insider_platform.ai.schema import AIValidationError, extract_json_from_text, validate_ai_output
+from insider_platform.compute.market_cap_pit import pit_market_cap
+from insider_platform.compute.stats import get_event_stats
 from insider_platform.config import Config
 from insider_platform.db import get_app_config
 from insider_platform.models import EventKey
@@ -300,44 +302,38 @@ def build_ai_input(conn: Any, cfg: Config, event_key: EventKey) -> Dict[str, Any
 
     ticker = str(row["ticker"] or "").strip().upper()
 
-    # Market cap (source of truth)
-    mcap_row = None
-    if ticker:
-        mcap_row = conn.execute(
-            "SELECT * FROM market_cap_cache WHERE ticker=?",
-            (ticker,),
-        ).fetchone()
-
-    now_utc = datetime.now(timezone.utc)
-    mcap_stale_days = None
-    if mcap_row is not None and mcap_row["market_cap_updated_at"]:
-        mcap_stale_days = _iso_date_diff_days(mcap_row["market_cap_updated_at"], now_utc)
+    # Market cap AS OF THE FILING DATE (mcap_pit_v1): SEC shares outstanding from the latest
+    # 10-Q/10-K filed before the Form 4 x the reported trade price. The EODHD market_cap_cache is
+    # today's snapshot and would leak the stock's later performance into a past event.
+    shares_pit = row.get("shares_outstanding_pit")
+    shares_filed = row.get("shares_outstanding_filed")
+    mcap_stale_days = _days_between(shares_filed, row.get("filing_date")) if shares_filed else None
 
     issuer_context = {
         "ticker": ticker or None,
-        "market_cap": mcap_row["market_cap"] if mcap_row is not None else None,
-        "market_cap_bucket": mcap_row["market_cap_bucket"] if mcap_row is not None else None,
-        "market_cap_source": mcap_row["market_cap_source"] if mcap_row is not None else None,
-        "market_cap_updated_at": mcap_row["market_cap_updated_at"] if mcap_row is not None else None,
+        "market_cap": row.get("market_cap"),
+        "market_cap_bucket": row.get("market_cap_bucket"),
+        "market_cap_source": "sec_shares_outstanding_x_trade_price" if row.get("market_cap") is not None else None,
+        "market_cap_as_of": shares_filed,
+        "shares_outstanding": shares_pit,
     }
 
     # EODHD fundamentals (cached locally)
     if ticker:
         frow = conn.execute(
             """
-            SELECT eodhd_symbol, market_cap, pe_ratio, eps, shares_outstanding, sector, beta, updated_at
+            SELECT eodhd_symbol, pe_ratio, eps, sector, beta, updated_at
             FROM issuer_fundamentals_cache
             WHERE ticker=?
             """,
             (ticker,),
         ).fetchone()
         if frow is not None:
+            # Current snapshot; market cap / shares are deliberately omitted (see issuer_context).
             issuer_context["fundamentals"] = {
                 "eodhd_symbol": frow["eodhd_symbol"],
-                "market_cap": frow["market_cap"],
                 "pe_ratio": frow["pe_ratio"],
                 "eps": frow["eps"],
-                "shares_outstanding": frow["shares_outstanding"],
                 "sector": frow.get("sector"),
                 "beta": frow.get("beta"),
                 "updated_at": frow["updated_at"],
@@ -375,16 +371,22 @@ def build_ai_input(conn: Any, cfg: Config, event_key: EventKey) -> Dict[str, Any
         "sell_cluster": sell_cluster,
     }
 
-    # Insider stats (stats_v2 = excess vs benchmark)
-    stats_buy = _fetch_stats(conn, event_key.issuer_cik, event_key.owner_key, "buy")
-    stats_sell = _fetch_stats(conn, event_key.issuer_cik, event_key.owner_key, "sell")
+    # Insider stats (stats_v3): point-in-time track record as of this filing date. Only trades whose
+    # holding period ended before the filing count; this trade and later ones never leak in.
+    event_stats = _fetch_stats(conn, cfg, event_key, row["filing_date"])
+    stats_buy = event_stats["buy"]
+    stats_sell = event_stats["sell"]
 
     benchmark_symbol = (get_app_config(conn, "benchmark_symbol_resolved") or cfg.BENCHMARK_SYMBOL or "").strip() or "SPY.US"
 
     insider_stats = {
         "buy": stats_buy,
         "sell": stats_sell,
-        "notes": "avg_return_* are excess returns vs benchmark (trade_return - benchmark_return); see $.benchmark.symbol",
+        "notes": (
+            "Track record as of the filing date: only this insider's earlier trades at this issuer whose "
+            "60/180-trading-day holding period had ended before the filing. avg_return_* are excess "
+            "returns vs benchmark (trade_return - benchmark_return); see $.benchmark.symbol"
+        ),
     }
 
     # Trend context (event-level)
@@ -459,7 +461,10 @@ def build_ai_input(conn: Any, cfg: Config, event_key: EventKey) -> Dict[str, Any
                 pct = (float(shares) / float(before)) * 100.0
                 multiple = float(after) / float(before)
 
-        mcap_val = issuer_context.get("market_cap")
+        # Point-in-time market cap at this side's reported price (research: shares x side vwap).
+        mcap_val = pit_market_cap(shares_pit, vwap) if isinstance(vwap, (int, float)) else None
+        if mcap_val is None:
+            mcap_val = issuer_context.get("market_cap")
         if isinstance(dollars, (int, float)) and isinstance(mcap_val, (int, float)):
             if float(dollars) > 0 and float(mcap_val) > 0:
                 trade_value_pct_mcap = (float(dollars) / float(mcap_val)) * 100.0
@@ -742,30 +747,17 @@ def _fetch_cluster_context(conn: Any, cluster_id: Any, flag: Any) -> Dict[str, A
     }
 
 
-def _fetch_stats(conn: Any, issuer_cik: str, owner_key: str, side: str) -> Dict[str, Any]:
-    row = conn.execute(
-        "SELECT * FROM insider_issuer_stats WHERE issuer_cik=? AND owner_key=? AND side=?",
-        (issuer_cik, owner_key, side),
-    ).fetchone()
-
-    if row is None:
-        return {
-            "eligible_n_60d": 0,
-            "win_rate_60d": None,
-            "avg_return_60d": None,
-            "eligible_n_180d": 0,
-            "win_rate_180d": None,
-            "avg_return_180d": None,
-        }
-
-    return {
-        "eligible_n_60d": row["eligible_n_60d"],
-        "win_rate_60d": row["win_rate_60d"],
-        "avg_return_60d": row["avg_return_60d"],
-        "eligible_n_180d": row["eligible_n_180d"],
-        "win_rate_180d": row["win_rate_180d"],
-        "avg_return_180d": row["avg_return_180d"],
-    }
+def _fetch_stats(conn: Any, cfg: Config, event_key: EventKey, filing_date: Any) -> Dict[str, Dict[str, Any]]:
+    """Point-in-time insider stats for this event, by side (see compute/stats.py)."""
+    stats = get_event_stats(
+        conn, cfg, event_key.issuer_cik, event_key.owner_key, event_key.accession_number, filing_date
+    )
+    keys = (
+        "as_of_date",
+        "eligible_n_60d", "win_rate_60d", "avg_return_60d",
+        "eligible_n_180d", "win_rate_180d", "avg_return_180d",
+    )
+    return {side: {k: stats[side].get(k) for k in keys} for side in ("buy", "sell")}
 
 
 def _fetch_insider_history(

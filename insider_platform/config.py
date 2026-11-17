@@ -91,14 +91,26 @@ class Config:
     CURRENT_PARSE_VERSION: str = os.environ.get("CURRENT_PARSE_VERSION", "form4_parse_v1.2")
     OWNER_NORM_VERSION: str = os.environ.get("OWNER_NORM_VERSION", "owner_norm_v1")
     # v2: require >=2 distinct filings in a cluster window (reduces false positives from multi-owner filings)
-    CURRENT_CLUSTER_VERSION: str = os.environ.get("CURRENT_CLUSTER_VERSION", "cluster_v2")
+    # v3: point-in-time: one cluster per event from other insiders' filings in the 14 days up to its
+    #     filing date (never later ones); same-accession co-filers and 10%-holder-only filers excluded
+    CURRENT_CLUSTER_VERSION: str = os.environ.get("CURRENT_CLUSTER_VERSION", "cluster_v3")
     # v2: trend anchoring prefers earliest open-market date when present
     CURRENT_TREND_VERSION: str = os.environ.get("CURRENT_TREND_VERSION", "trend_v2")
     # v3: outcomes anchor on filing_date (tradeable) and use adjusted-close p0 (split-safe)
-    CURRENT_OUTCOMES_VERSION: str = os.environ.get("CURRENT_OUTCOMES_VERSION", "outcomes_v3")
-    CURRENT_STATS_VERSION: str = os.environ.get("CURRENT_STATS_VERSION", "stats_v2")
+    # v4: entry = first trading day strictly AFTER filing_date (max 7-day gap); benchmark measured
+    #     over the same calendar dates as the stock
+    CURRENT_OUTCOMES_VERSION: str = os.environ.get("CURRENT_OUTCOMES_VERSION", "outcomes_v4")
+    # v3: per-event point-in-time stats (insider_event_stats): only trades whose holding period
+    #     ended before the event's filing date
+    CURRENT_STATS_VERSION: str = os.environ.get("CURRENT_STATS_VERSION", "stats_v3")
+    # mcap_pit_v1: event market cap = SEC shares outstanding (latest 10-Q/10-K filed before the
+    #     Form 4) x reported trade price, instead of today's EODHD snapshot
+    CURRENT_MARKET_CAP_VERSION: str = os.environ.get("CURRENT_MARKET_CAP_VERSION", "mcap_pit_v1")
+    # Re-download SEC share counts for an issuer when the last download is older than this.
+    SHARES_OUTSTANDING_MAX_AGE_DAYS: int = int(os.environ.get("SHARES_OUTSTANDING_MAX_AGE_DAYS", "3"))
 
-    AI_INPUT_SCHEMA_VERSION: str = os.environ.get("AI_INPUT_SCHEMA_VERSION", "ai_input_v2")
+    # v3: point-in-time insider_stats and market cap
+    AI_INPUT_SCHEMA_VERSION: str = os.environ.get("AI_INPUT_SCHEMA_VERSION", "ai_input_v3")
     AI_OUTPUT_SCHEMA_VERSION: str = os.environ.get("AI_OUTPUT_SCHEMA_VERSION", "ai_output_v1")
     PROMPT_VERSION: str = os.environ.get("PROMPT_VERSION", "prompt_ai_v5")
 

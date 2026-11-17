@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, List, Tuple, Optional
+from bisect import bisect_right
+from datetime import date
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from insider_platform.config import Config
 from insider_platform.db import get_app_config
@@ -17,18 +19,21 @@ def _debug(msg: str) -> None:
 def compute_outcomes_for_event(conn: Any, cfg: Config, event_key: EventKey) -> None:
     """Compute +60/+180 trading-day forward returns for buy and sell sides.
 
-    **Anchor convention (tradeable):**
-    - We anchor on the first trading day on/after the *filing_date* (not the transaction date).
-      This makes outcomes representative of what a user could have traded after the filing became public.
-    - We store p0 as the issuer's adjusted close on that anchor date. This keeps the return series
-      internally consistent (important around splits, dividends, etc.).
-
-    outcomes_v3 adds a benchmark series (default: SPY.US) so we can compute:
-      excess_return = trade_return - benchmark_return
+    outcomes_v4 (point-in-time entry; matches research/build_dataset.py `forward_returns`):
+    - **Entry** is the close of the first trading day *strictly after* the filing date. Most Form 4s
+      are accepted after the market close, so the filing-day close was usually not tradeable.
+      If that day is more than MAX_ENTRY_GAP_DAYS calendar days after the filing, there is no entry.
+    - **Exit** is the close `horizon` trading days (rows in the issuer's series) after entry.
+    - **Benchmark** is measured over the SAME calendar dates as the stock: its last close on or
+      before the entry date to its last close on or before the exit date. (Before v4 it counted
+      +60/+180 rows in its own series, which misaligned the windows whenever the issuer's series
+      had gaps.)
+    - p0 is the issuer's adjusted close on the entry date (split-safe).
 
     Benchmark returns use the SAME sign convention as the trade side:
-      - buy:  (bench_future / bench_anchor) - 1
-      - sell: (bench_anchor - bench_future) / bench_anchor
+      - buy:  (bench_exit / bench_entry) - 1
+      - sell: (bench_entry - bench_exit) / bench_entry
+    so excess_return = trade_return - benchmark_return is "good for the insider" on both sides.
     """
     ev = conn.execute(
         """
@@ -178,21 +183,130 @@ def _load_benchmark_prices(conn: Any, symbol: str) -> List[Tuple[str, float]]:
     return [(str(r["date"]), float(r["adj_close"])) for r in rows]
 
 
-def _find_anchor_index(dates: List[str], trade_date: Any) -> Optional[int]:
-    if not trade_date:
+# Calendar days allowed between the filing date and the entry day (research config `max_entry_gap_days`).
+MAX_ENTRY_GAP_DAYS = 7
+HORIZONS: Tuple[int, ...] = (60, 180)
+
+
+def _iso_day(x: Any) -> Optional[str]:
+    """'YYYY-MM-DD' from a date/datetime/ISO string (time or timezone suffixes are dropped)."""
+    if x is None:
         return None
-    td = str(trade_date)
-    for idx, d in enumerate(dates):
-        if d >= td:
-            return idx
-    return None
+    s = str(x).strip()[:10]
+    try:
+        date.fromisoformat(s)
+    except ValueError:
+        return None
+    return s
+
+
+def find_entry_index(
+    dates: Sequence[str], filing_date: Any, *, max_gap_days: int = MAX_ENTRY_GAP_DAYS
+) -> Tuple[Optional[int], Optional[str]]:
+    """Index of the first trading day strictly AFTER `filing_date`.
+
+    Returns (index, None) or (None, missing_reason).
+    `dates` must be sorted ascending 'YYYY-MM-DD' strings.
+    """
+    fd = _iso_day(filing_date)
+    if fd is None:
+        return None, "missing_filing_date"
+    i = bisect_right(dates, fd)
+    if i >= len(dates):
+        return None, "anchor_not_found"
+    gap = (date.fromisoformat(dates[i]) - date.fromisoformat(fd)).days
+    if gap > max_gap_days:
+        return None, "entry_gap_too_large"
+    return i, None
+
+
+def _side_return(p0: float, p1: float, side: str) -> float:
+    if side == "buy":
+        return (p1 / p0) - 1.0
+    # sell side: a fall in price after the sale counts as a positive return (short bias)
+    return (p0 - p1) / p0
 
 
 def _bench_return(b0: float, bf: float, side: str) -> float:
-    if side == "buy":
-        return (bf / b0) - 1.0
-    # sell side: treat benchmark as the reference the same way we treat the trade (short bias)
-    return (b0 - bf) / b0
+    return _side_return(b0, bf, side)
+
+
+def forward_outcome(
+    dates: Sequence[str],
+    closes: Sequence[float],
+    bench_dates: Sequence[str],
+    bench_closes: Sequence[float],
+    filing_date: Any,
+    side: str,
+    *,
+    horizons: Sequence[int] = HORIZONS,
+    max_entry_gap_days: int = MAX_ENTRY_GAP_DAYS,
+) -> Dict[str, Any]:
+    """Pure forward-return computation for one event side (no database access).
+
+    Returns a dict with `missing_reason` (None when an entry exists), `anchor_date`, `p0`, and for
+    each horizon h: future_date_{h}d, future_price_{h}d, return_{h}d, missing_reason_{h}d,
+    bench_return_{h}d, bench_missing_reason_{h}d, excess_return_{h}d.
+    """
+    out: Dict[str, Any] = {"missing_reason": None, "anchor_date": None, "p0": None}
+    for h in horizons:
+        out.update({
+            f"future_date_{h}d": None, f"future_price_{h}d": None, f"return_{h}d": None,
+            f"missing_reason_{h}d": None, f"bench_return_{h}d": None,
+            f"bench_missing_reason_{h}d": None, f"excess_return_{h}d": None,
+        })
+
+    i, reason = find_entry_index(dates, filing_date, max_gap_days=max_entry_gap_days)
+    if i is None:
+        out["missing_reason"] = reason
+        return out
+    p0 = float(closes[i])
+    if p0 <= 0:
+        out["missing_reason"] = "bad_anchor_price"
+        return out
+    entry_date = dates[i]
+    out["anchor_date"] = entry_date
+    out["p0"] = p0
+
+    # Benchmark close on or before the entry date.
+    b0 = None
+    bench_entry_reason = None
+    if not bench_dates:
+        bench_entry_reason = "missing_benchmark_series"
+    else:
+        bi0 = bisect_right(bench_dates, entry_date) - 1
+        if bi0 < 0:
+            bench_entry_reason = "benchmark_anchor_not_found"
+        elif float(bench_closes[bi0]) <= 0:
+            bench_entry_reason = "benchmark_bad_p0"
+        else:
+            b0 = float(bench_closes[bi0])
+
+    for h in horizons:
+        xi = i + h
+        if xi >= len(dates):
+            out[f"missing_reason_{h}d"] = "insufficient_future_data"
+            out[f"bench_missing_reason_{h}d"] = bench_entry_reason or "trade_return_missing"
+            continue
+        exit_date = dates[xi]
+        fp = float(closes[xi])
+        r = _side_return(p0, fp, side)
+        out[f"future_date_{h}d"] = exit_date
+        out[f"future_price_{h}d"] = fp
+        out[f"return_{h}d"] = r
+
+        if b0 is None:
+            out[f"bench_missing_reason_{h}d"] = bench_entry_reason
+            continue
+        # The benchmark must have a close on/after the exit date, otherwise its series is stale.
+        if bench_dates[-1] < exit_date:
+            out[f"bench_missing_reason_{h}d"] = "insufficient_benchmark_future_data"
+            continue
+        bi1 = bisect_right(bench_dates, exit_date) - 1
+        br = _bench_return(b0, float(bench_closes[bi1]), side)
+        out[f"bench_return_{h}d"] = br
+        out[f"excess_return_{h}d"] = r - br
+    return out
 
 
 def _compute_side(
@@ -222,11 +336,11 @@ def _compute_side(
         )
         return
 
-    # Anchor index = first trading day on/after filing_date (tradeable),
+    # Entry = first trading day strictly after filing_date (tradeable),
     # falling back to trade_date when filing_date is missing.
     anchor_source_date = filing_date or trade_date
-    i = _find_anchor_index(dates, anchor_source_date)
-    if i is None:
+    res = forward_outcome(dates, closes, bench_dates, bench_closes, anchor_source_date, side)
+    if res["missing_reason"] is not None:
         _upsert_missing(
             conn,
             cfg,
@@ -234,106 +348,24 @@ def _compute_side(
             side=side,
             trade_date=trade_date,
             p0=None,
-            reason="anchor_not_found",
+            reason=res["missing_reason"],
             bench_symbol=bench_symbol,
             bench_missing_reason="missing_benchmark_series" if not bench_dates else None,
         )
         return
 
-    anchor_date = dates[i]
-    p0f = float(closes[i])
-    if p0f <= 0:
-        _upsert_missing(
-            conn,
-            cfg,
-            event_key,
-            side=side,
-            trade_date=trade_date,
-            p0=None,
-            reason="bad_anchor_price",
-            bench_symbol=bench_symbol,
-            bench_missing_reason="missing_benchmark_series" if not bench_dates else None,
-        )
-        return
-
-    # Trade-side forward returns (issuer)
-    out = {
-        "future_date_60d": None,
-        "future_price_60d": None,
-        "return_60d": None,
-        "missing_reason_60d": None,
-        "future_date_180d": None,
-        "future_price_180d": None,
-        "return_180d": None,
-        "missing_reason_180d": None,
-    }
-
-    # +60 trading days
-    if i + 60 < len(dates):
-        fd = dates[i + 60]
-        fp = closes[i + 60]
-        out["future_date_60d"] = fd
-        out["future_price_60d"] = fp
-        if side == "buy":
-            out["return_60d"] = (fp / p0f) - 1.0
-        else:
-            out["return_60d"] = (p0f - fp) / p0f
-    else:
-        out["missing_reason_60d"] = "insufficient_future_data"
-
-    # +180 trading days
-    if i + 180 < len(dates):
-        fd = dates[i + 180]
-        fp = closes[i + 180]
-        out["future_date_180d"] = fd
-        out["future_price_180d"] = fp
-        if side == "buy":
-            out["return_180d"] = (fp / p0f) - 1.0
-        else:
-            out["return_180d"] = (p0f - fp) / p0f
-    else:
-        out["missing_reason_180d"] = "insufficient_future_data"
-
-    # Benchmark forward returns (optional)
-    bench_return_60 = None
-    bench_reason_60 = None
-    bench_return_180 = None
-    bench_reason_180 = None
-
-    if not bench_dates:
-        bench_reason_60 = "missing_benchmark_series"
-        bench_reason_180 = "missing_benchmark_series"
-    else:
-        bi = _find_anchor_index(bench_dates, anchor_source_date)
-        if bi is None:
-            bench_reason_60 = "benchmark_anchor_not_found"
-            bench_reason_180 = "benchmark_anchor_not_found"
-        else:
-            b0 = bench_closes[bi]
-            if b0 <= 0:
-                bench_reason_60 = "benchmark_bad_p0"
-                bench_reason_180 = "benchmark_bad_p0"
-            else:
-                if bi + 60 < len(bench_dates):
-                    bf = bench_closes[bi + 60]
-                    bench_return_60 = _bench_return(b0, bf, side)
-                else:
-                    bench_reason_60 = "insufficient_benchmark_future_data"
-
-                if bi + 180 < len(bench_dates):
-                    bf = bench_closes[bi + 180]
-                    bench_return_180 = _bench_return(b0, bf, side)
-                else:
-                    bench_reason_180 = "insufficient_benchmark_future_data"
-
-    # Excess returns only when both are available.
-    excess_60 = None
-    if out["return_60d"] is not None and bench_return_60 is not None:
-        excess_60 = float(out["return_60d"]) - float(bench_return_60)
-
-    excess_180 = None
-    if out["return_180d"] is not None and bench_return_180 is not None:
-        excess_180 = float(out["return_180d"]) - float(bench_return_180)
+    anchor_date = res["anchor_date"]
+    p0f = res["p0"]
+    out = {k: res[k] for k in (
+        "future_date_60d", "future_price_60d", "return_60d", "missing_reason_60d",
+        "future_date_180d", "future_price_180d", "return_180d", "missing_reason_180d",
+    )}
+    bench_return_60 = res["bench_return_60d"]
+    bench_reason_60 = res["bench_missing_reason_60d"]
+    bench_return_180 = res["bench_return_180d"]
+    bench_reason_180 = res["bench_missing_reason_180d"]
+    excess_60 = res["excess_return_60d"]
+    excess_180 = res["excess_return_180d"]
 
     now = utcnow_iso()
     conn.execute(

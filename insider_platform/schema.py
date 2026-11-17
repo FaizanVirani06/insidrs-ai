@@ -223,10 +223,14 @@ CREATE TABLE IF NOT EXISTS insider_events (
     cluster_flag_sell INTEGER,
     cluster_id_sell TEXT,
 
-    -- Market cap snapshot (denormalized)
+    -- Market cap as of the filing date (mcap_pit_v1):
+    -- SEC shares outstanding from the latest 10-Q/10-K filed before the Form 4 x reported trade price.
     market_cap BIGINT,
     market_cap_bucket TEXT,
     market_cap_updated_at TEXT,
+    shares_outstanding_pit DOUBLE PRECISION,
+    shares_outstanding_filed TEXT,
+    market_cap_version TEXT,
 
     -- AI snapshot (denormalized)
     ai_buy_rating DOUBLE PRECISION,
@@ -373,6 +377,51 @@ CREATE TABLE IF NOT EXISTS insider_issuer_stats (
     PRIMARY KEY (issuer_cik, owner_key, side)
 );
 CREATE INDEX IF NOT EXISTS idx_stats_issuer_owner ON insider_issuer_stats (issuer_cik, owner_key);
+
+-- Point-in-time insider track record for one event (stats_v3): only this insider's trades at this
+-- issuer whose holding period ended BEFORE the event's filing date (as_of_date).
+CREATE TABLE IF NOT EXISTS insider_event_stats (
+    issuer_cik TEXT NOT NULL,
+    owner_key TEXT NOT NULL,
+    accession_number TEXT NOT NULL,
+    side TEXT NOT NULL CHECK (side IN ('buy','sell')),
+    as_of_date TEXT,
+
+    eligible_n_60d INTEGER NOT NULL,
+    wins_60d INTEGER NOT NULL,
+    win_rate_60d DOUBLE PRECISION,
+    avg_return_60d DOUBLE PRECISION,
+
+    eligible_n_180d INTEGER NOT NULL,
+    wins_180d INTEGER NOT NULL,
+    win_rate_180d DOUBLE PRECISION,
+    avg_return_180d DOUBLE PRECISION,
+
+    stats_version TEXT NOT NULL,
+    computed_at TEXT NOT NULL,
+
+    PRIMARY KEY (issuer_cik, owner_key, accession_number, side)
+);
+CREATE INDEX IF NOT EXISTS idx_event_stats_issuer_owner ON insider_event_stats (issuer_cik, owner_key);
+
+-- SEC-reported shares outstanding by the date each 10-Q/10-K was filed (XBRL companyconcept API).
+CREATE TABLE IF NOT EXISTS issuer_shares_outstanding (
+    issuer_cik TEXT NOT NULL,
+    filed TEXT NOT NULL,
+    period_end TEXT,
+    shares DOUBLE PRECISION NOT NULL,
+    source_tag TEXT,
+    fetched_at TEXT NOT NULL,
+    PRIMARY KEY (issuer_cik, filed)
+);
+
+CREATE TABLE IF NOT EXISTS issuer_shares_fetch (
+    issuer_cik TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK (status IN ('ok','empty')),
+    source_tag TEXT,
+    row_count INTEGER NOT NULL DEFAULT 0,
+    fetched_at TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS market_cap_cache (
     ticker TEXT PRIMARY KEY,

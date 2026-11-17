@@ -348,6 +348,15 @@ def _migrate(conn: Any) -> None:
                 else:
                     conn.execute(f"ALTER TABLE users ADD COLUMN {col} {ctype}")
 
+    # --- insider_events: point-in-time market cap (mcap_pit_v1) ---
+    if _table_exists(conn, "insider_events") and not _has_column(conn, "insider_events", "market_cap_version"):
+        conn.execute("ALTER TABLE insider_events ADD COLUMN shares_outstanding_pit DOUBLE PRECISION")
+        conn.execute("ALTER TABLE insider_events ADD COLUMN shares_outstanding_filed TEXT")
+        conn.execute("ALTER TABLE insider_events ADD COLUMN market_cap_version TEXT")
+        # The existing values are today's snapshot copied onto historical events (look-ahead).
+        # Clear them once; COMPUTE_MARKET_CAP_PIT_FOR_ISSUER refills them point-in-time.
+        conn.execute("UPDATE insider_events SET market_cap=NULL, market_cap_bucket=NULL, market_cap_updated_at=NULL")
+
     # --- users: allow showcase role on existing DBs ---
     _ensure_users_role_constraint(conn)
 

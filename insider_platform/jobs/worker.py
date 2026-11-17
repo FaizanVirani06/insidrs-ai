@@ -9,6 +9,11 @@ from insider_platform.ai.settings import is_ai_classification_enabled
 from insider_platform.compute.aggregate import aggregate_accession
 from insider_platform.compute.clusters import compute_clusters_for_ticker
 from insider_platform.compute.market_cap import fetch_and_store_market_cap
+from insider_platform.compute.market_cap_pit import (
+    compute_market_cap_pit_for_issuer,
+    fetch_and_store_shares_outstanding,
+    shares_fetch_is_fresh,
+)
 from insider_platform.compute.news import fetch_and_store_news
 from insider_platform.compute.outcomes import compute_outcomes_for_event
 from insider_platform.compute.prices import fetch_and_store_benchmark_prices, fetch_and_store_prices_for_issuer
@@ -46,6 +51,7 @@ API_JOB_TYPES: Set[str] = {
     "INGEST_ACCESSION",  # backward-compatible alias that fetches + enqueues parse
     "FETCH_EOD_PRICES_FOR_ISSUER",
     "FETCH_MARKET_CAP_FOR_TICKER",
+    "FETCH_SHARES_OUTSTANDING_FOR_ISSUER",
     "FETCH_NEWS_FOR_TICKER",
     "FETCH_BENCHMARK_PRICES",
     "BACKFILL_DISCOVER_ISSUER",
@@ -60,6 +66,7 @@ COMPUTE_JOB_TYPES: Set[str] = {
     "COMPUTE_OUTCOMES_FOR_EVENT",
     "COMPUTE_STATS_FOR_OWNER_ISSUER",
     "COMPUTE_CLUSTERS_FOR_TICKER",
+    "COMPUTE_MARKET_CAP_PIT_FOR_ISSUER",
     "RUN_AI_FOR_EVENT",
     "REPARSE_TICKER",
 }
@@ -245,6 +252,7 @@ def _run_job(conn: Any, cfg: Config, job_type: str, payload: Dict[str, Any]) -> 
                 priority=10,
                 requeue_if_exists=True,
             )
+            _enqueue_shares_fetch(conn, cfg, res.issuer_cik)
         if res.ticker:
             enqueue_job(
                 conn,
@@ -375,6 +383,10 @@ def _run_job(conn: Any, cfg: Config, job_type: str, payload: Dict[str, Any]) -> 
 
         event_keys = aggregate_accession(conn, cfg, accession)
 
+        # Point-in-time market cap for the (new) events of this issuer.
+        for issuer_cik in sorted({ek.issuer_cik for ek in event_keys}):
+            _enqueue_market_cap_pit(conn, cfg, issuer_cik)
+
         # For each event, compute trend + outcomes.
         # AI is *only* enqueued for poller-discovered (new) filings to keep AI API usage bounded.
         for ek in event_keys:
@@ -443,6 +455,18 @@ def _run_job(conn: Any, cfg: Config, job_type: str, payload: Dict[str, Any]) -> 
     if job_type == "FETCH_MARKET_CAP_FOR_TICKER":
         ticker = str(payload["ticker"]).strip()
         fetch_and_store_market_cap(conn, cfg, ticker)
+        return
+
+    if job_type == "FETCH_SHARES_OUTSTANDING_FOR_ISSUER":
+        issuer_cik = str(payload["issuer_cik"]).zfill(10)
+        if bool(payload.get("force")) or not shares_fetch_is_fresh(conn, cfg, issuer_cik):
+            fetch_and_store_shares_outstanding(conn, cfg, issuer_cik)
+        _enqueue_market_cap_pit(conn, cfg, issuer_cik)
+        return
+
+    if job_type == "COMPUTE_MARKET_CAP_PIT_FOR_ISSUER":
+        issuer_cik = str(payload["issuer_cik"]).zfill(10)
+        compute_market_cap_pit_for_issuer(conn, cfg, issuer_cik)
         return
 
     if job_type == "FETCH_NEWS_FOR_TICKER":
@@ -563,6 +587,10 @@ def _run_job(conn: Any, cfg: Config, job_type: str, payload: Dict[str, Any]) -> 
                 )
             raise JobDeferred("ai_prereq_missing_cluster", retry_after_seconds=90)
 
+        # Point-in-time market cap: wait for the SEC share counts (unless that download failed
+        # for good) and for the event's market cap to be computed at the current version.
+        _require_market_cap_pit(conn, cfg, ek.issuer_cik, ek.owner_key, ek.accession_number)
+
         row = conn.execute(
             """
             SELECT has_buy, has_sell
@@ -587,6 +615,54 @@ def _run_job(conn: Any, cfg: Config, job_type: str, payload: Dict[str, Any]) -> 
         return
 
     raise RuntimeError(f"Unknown job_type: {job_type}")
+
+
+def _enqueue_shares_fetch(conn: Any, cfg: Config, issuer_cik: str, *, force: bool = False) -> None:
+    cik = str(issuer_cik).zfill(10)
+    enqueue_job(
+        conn,
+        job_type="FETCH_SHARES_OUTSTANDING_FOR_ISSUER",
+        dedupe_key=f"SHARES|{cik}",
+        payload={"issuer_cik": cik, "force": bool(force)},
+        priority=15,
+        requeue_if_exists=True,
+    )
+
+
+def _enqueue_market_cap_pit(conn: Any, cfg: Config, issuer_cik: str) -> None:
+    cik = str(issuer_cik).zfill(10)
+    enqueue_job(
+        conn,
+        job_type="COMPUTE_MARKET_CAP_PIT_FOR_ISSUER",
+        dedupe_key=f"MCAP_PIT|{cik}|{cfg.CURRENT_MARKET_CAP_VERSION}",
+        payload={"issuer_cik": cik},
+        priority=35,
+        requeue_if_exists=True,
+    )
+
+
+def _require_market_cap_pit(conn: Any, cfg: Config, issuer_cik: str, owner_key: str, accession: str) -> None:
+    """Raise JobDeferred until the event has a point-in-time market cap at the current version."""
+    cik = str(issuer_cik).zfill(10)
+    if not shares_fetch_is_fresh(conn, cfg, cik):
+        job = conn.execute("SELECT status FROM jobs WHERE dedupe_key=?", (f"SHARES|{cik}",)).fetchone()
+        if job is None or str(job["status"]) in ("pending", "running", "success"):
+            # success + not fresh = an old download: refresh it so a just-filed 10-Q is included.
+            if job is None or str(job["status"]) == "success":
+                _enqueue_shares_fetch(conn, cfg, cik)
+            raise JobDeferred("ai_prereq_missing_shares_outstanding", retry_after_seconds=45)
+        # status == 'error': the SEC download failed for good; proceed with what we have.
+
+    ev = conn.execute(
+        """
+        SELECT market_cap_version FROM insider_events
+        WHERE issuer_cik=? AND owner_key=? AND accession_number=?
+        """,
+        (cik, owner_key, accession),
+    ).fetchone()
+    if ev is not None and ev["market_cap_version"] != cfg.CURRENT_MARKET_CAP_VERSION:
+        _enqueue_market_cap_pit(conn, cfg, cik)
+        raise JobDeferred("ai_prereq_missing_market_cap_pit", retry_after_seconds=45)
 
 
 def _requeue_missing_price_dependent_jobs(conn: Any, cfg: Config, issuer_cik: str) -> None:

@@ -19,6 +19,7 @@ def main() -> None:
         upsert_app_config(conn, "current_trend_version", cfg.CURRENT_TREND_VERSION)
         upsert_app_config(conn, "current_outcomes_version", cfg.CURRENT_OUTCOMES_VERSION)
         upsert_app_config(conn, "current_stats_version", cfg.CURRENT_STATS_VERSION)
+        upsert_app_config(conn, "current_market_cap_version", cfg.CURRENT_MARKET_CAP_VERSION)
         upsert_app_config(conn, "ai_input_schema_version", cfg.AI_INPUT_SCHEMA_VERSION)
         upsert_app_config(conn, "ai_output_schema_version", cfg.AI_OUTPUT_SCHEMA_VERSION)
         upsert_app_config(conn, "prompt_version", cfg.PROMPT_VERSION)

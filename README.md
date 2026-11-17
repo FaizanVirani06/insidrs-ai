@@ -15,9 +15,10 @@ kept online as a **portfolio showcase**.
 
 - **Ingestion:** a poller on EDGAR's live Form 4 feed feeds a Postgres-backed job queue (dedupe keys, priorities,
   retries). Separate API and compute workers parse filing XML into one event per insider per filing.
-- **Signal research:** 60/180 trading-day forward returns from the first tradeable day after each filing went
-  public, net of SPY. These roll up into per-insider win rates. Features include cluster buying (2+ insiders in 14
-  days), pre-trade momentum, 52-week range position, and 50/200-day moving averages.
+- **Signal research:** 60/180 trading-day forward returns entered at the close of the first trading day after the
+  filing date, net of SPY over the same dates. These roll up into per-insider win rates. Features include cluster
+  buying (other insiders who filed in the 14 days before), pre-trade momentum, 52-week range position, and 50/200-day
+  moving averages. Everything attached to an event is point-in-time (see below).
 - **AI rating:** Gemini receives a structured feature package (never raw filings) and must return strict JSON
   validated against a versioned schema, with one repair attempt on failure. Inputs are hashed so unchanged events
   are never re-scored.
@@ -40,6 +41,23 @@ kept online as a **portfolio showcase**.
 - The SPA shows a portfolio banner, the `/recruiters` page, and the guided tour.
 
 Set `SHOWCASE_MODE=0` to restore normal paid-product behavior.
+
+## Point-in-time data
+
+What an event shows, and what the AI is given, uses only information public on its filing date:
+
+- **Insider stats** (`insider_event_stats`, `stats_v3`): only the insider's trades at that company whose 60/180-day
+  holding period had ended before the filing date. `insider_issuer_stats` is the record as of today and is not
+  attached to past events.
+- **Outcomes** (`outcomes_v4`): entry at the close of the first trading day strictly after the filing date (no entry
+  if that is more than 7 days later); the benchmark is measured over the stock's own entry and exit dates.
+- **Cluster flag** (`cluster_v3`): set when at least one other insider at the company filed a same-side trade in the
+  14 days up to the filing date. Later filings, co-filers on the same form, and 10%-holder-only filers do not count.
+- **Market cap** (`mcap_pit_v1`): SEC-reported shares outstanding from the latest 10-Q/10-K filed before the Form 4
+  times the reported trade price. The EODHD snapshot is kept for ticker pages only.
+
+These match the definitions in the research pipeline. Recomputation is explicit: after deploying, run
+`python scripts/enqueue_pit_recompute.py --dry-run` to see what is stale, then without `--dry-run` to enqueue it.
 
 ## Pausing Gemini classification
 

@@ -142,16 +142,7 @@ def fetch_and_store_market_cap(conn: Any, cfg: Config, ticker: str) -> None:
         (t, market_cap, bucket, now),
     )
 
-    # Denormalize onto events (snapshot for UI + AI)
-    conn.execute(
-        """
-        UPDATE insider_events
-        SET market_cap=?,
-            market_cap_bucket=?,
-            market_cap_updated_at=?
-        WHERE ticker=?
-        """,
-        (market_cap, bucket, now, t),
-    )
+    # NOTE: this is a current snapshot. It is NOT copied onto insider_events: event market cap is
+    # point-in-time (see compute/market_cap_pit.py).
 
     _debug(f"Updated fundamentals ticker={t} symbol={symbol} mcap={market_cap} bucket={bucket} sector={sector} beta={beta} pe={pe_ratio} shares_out={shares_outstanding}")
