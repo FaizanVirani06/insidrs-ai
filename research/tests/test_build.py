@@ -132,3 +132,46 @@ def test_cluster_ignores_co_filers_on_the_same_form_and_funds():
     # The two fund entities filed jointly: they are not each other's "cluster".
     # The CEO sees no earlier officer/director; the director sees the CEO only.
     assert list(out) == [0, 0, 0, 1]
+
+
+def test_event_windows_and_factor_car():
+    import pandas as pd
+
+    from research.build_events import issuer_windows
+
+    dates = np.arange(np.datetime64("2020-01-01"), np.datetime64("2021-06-01"), dtype=D)
+    rng = np.random.default_rng(0)
+    mkt = rng.normal(0, 0.01, len(dates))
+    r = 1.5 * mkt + 0.001                                          # stock = 1.5 x market + 0.1%/day
+    closes = 100 * np.cumprod(1 + np.r_[0, r[1:]])
+    f = pd.DataFrame({"mkt_rf": mkt, "smb": rng.normal(0, .005, len(dates)), "hml": rng.normal(0, .005, len(dates)),
+                      "rmw": rng.normal(0, .005, len(dates)), "cma": rng.normal(0, .005, len(dates)),
+                      "rf": 0.0, "mom": rng.normal(0, .005, len(dates))},
+                     index=pd.DatetimeIndex(dates.astype("datetime64[ns]")))
+    bench = (dates, np.full(len(dates), 50.0))                    # flat benchmark
+    ev = pd.DataFrame({"trade_date": pd.to_datetime(["2020-12-01"]), "filing_date": pd.to_datetime(["2020-12-03"])})
+    w = issuer_windows(dates, closes, f, bench, ev).iloc[0]
+    it, ipre, ient = 335, 336, 338                                 # Dec 1, Dec 2, Dec 4 (day after filing)
+    assert np.isclose(w["ex_iwm_B"], closes[ipre] / closes[it] - 1)
+    assert np.isclose(w["ex_iwm_C"], closes[ient] / closes[ipre] - 1)
+    assert np.isclose(w["ex_iwm_D20"], closes[ient + 20] / closes[ient] - 1)
+    assert np.isclose(w["car_ff6_D20"], 20 * 0.001, atol=1e-9)     # betas recovered exactly -> only the 0.1%/day alpha remains
+    assert np.isclose(w["car_mkt_D60"], 60 * 0.001, atol=1e-9)
+
+
+def test_trader_types_use_only_earlier_filings():
+    import pandas as pd
+
+    from research.build_events import classify_traders
+
+    hist = pd.DataFrame({"insider_id": ["a"] * 4 + ["b"] * 3, "side": ["sell", "sell", "sell", "buy", "buy", "buy", "buy"],
+                         "trade_date": pd.to_datetime(["2017-03-05", "2018-03-09", "2019-03-02", "2020-02-01",
+                                                       "2017-01-05", "2018-07-01", "2019-11-01"]),
+                         "filing_date": pd.to_datetime(["2017-03-07", "2018-03-11", "2019-03-04", "2020-02-03",
+                                                        "2017-01-07", "2018-07-03", "2021-01-01"])})
+    targets = pd.DataFrame({"insider_id": ["a", "b", "c"], "trade_date": pd.to_datetime(["2020-06-01"] * 3),
+                            "filing_date": pd.to_datetime(["2020-06-03"] * 3)})
+    out = classify_traders(hist, targets, 24)
+    # a: traded every March 2017-19 -> routine. b: the 2019 trade was filed AFTER the target -> not yet eligible.
+    assert list(out["trader_type"]) == ["routine", "insufficient history", "insufficient history"]
+    assert list(out["bought_in_prior_window"]) == [True, True, False]

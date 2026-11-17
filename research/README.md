@@ -1,6 +1,6 @@
 # InsidrsAI research pipeline
 
-**Results: see [WRITEUP.md](WRITEUP.md).** The sections below are the working log.
+**Results: see [WRITEUP.md](WRITEUP.md).** Follow-up study in progress: [PREREGISTRATION.md](PREREGISTRATION.md) (holdout 2025+ locked). The sections below are the working log.
 
 A read-only quantitative study of the Form 4 data behind InsidrsAI: do the AI
 ratings, per-insider track records, and event features predict forward excess
@@ -42,6 +42,9 @@ Rules for everything in this folder:
 | `analysis/q4_sells.py` | Q4: stock returns after insider sells, versus buys |
 | `analysis/robustness.py` | Fund-concentration checks on the Q2 fund result; returns net of assumed trading costs |
 | `run_all.py` | Runs every step in order; stops at the first failure |
+| `fetch_factors.py` | Fama-French 5 factors + momentum, daily, from Ken French's library |
+| `build_events.py` | Event-time windows (trade -> filing -> entry -> +h) and pre-registered features |
+| `analysis/h_preregistered.py` | Pre-registered tests H1-H5; development sample unless `--open-holdout` |
 
 `data/` and `output/` are git-ignored.
 

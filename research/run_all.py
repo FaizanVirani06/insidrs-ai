@@ -16,10 +16,12 @@ import sys
 
 from research.common import load_config
 
-FETCH = [["research.extract"], ["research.fetch_prices", "--refresh"], ["research.fetch_shares", "--refresh"]]
-REST = [["research.build_dataset"], ["research.sanity_check"], ["research.analysis.q1_ratings"],
+FETCH = [["research.extract"], ["research.fetch_prices", "--refresh"], ["research.fetch_shares", "--refresh"],
+         ["research.fetch_factors"]]
+REST = [["research.build_dataset"], ["research.build_events"], ["research.sanity_check"], ["research.analysis.q1_ratings"],
         ["research.analysis.q2_track_records"], ["research.analysis.q3_features"],
-        ["research.analysis.q4_sells"], ["research.analysis.robustness"]]
+        ["research.analysis.q4_sells"], ["research.analysis.robustness"],
+        ["research.analysis.h_preregistered"]]       # development sample only; never opens the holdout
 
 
 def main() -> None:
