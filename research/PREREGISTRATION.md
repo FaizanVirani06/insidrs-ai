@@ -315,3 +315,9 @@ breakdown of capture by liquidity tier was added for the development sample only
 The holdout has now been used once, for the capture measure only. Any future
 hypothesis tested on 2025+ data must disclose this.
 
+
+**Study 3 clarification (18 Nov 2026, before any Study 3 data was extracted).**
+S4's "the filing's purchases span ≥ 2 calendar days" is implemented as
+purchases on two or more different calendar days (last transaction date after
+the first). The option-exercise events' liquidity for the cost estimate is the
+same 20-day median dollar volume used elsewhere.
