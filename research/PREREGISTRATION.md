@@ -121,6 +121,57 @@ can act on it.
   returns do not fully remove characteristic effects (e.g. a stock's own momentum).
 - **180-day holdout results** for 2026 filings mature through 2027.
 
+## Study 2: can a real-time reader capture the disclosure reaction?
+
+*Added 17 Nov 2026, before any of these measurements were run.*
+
+**Motivation.** In the development sample, 1.6% of excess return (factor
+BHAR, 95% CI +1.3% to +1.8%) arrives in the two-day disclosure window, and
+little arrives afterwards. Part of that window may be tradeable by someone who
+reads each Form 4 the moment EDGAR accepts it.
+
+**Data.**
+- **Acceptance time** for each filing, from SEC submissions data (UTC,
+  converted to New York time).
+- **Daily open and close prices** from Yahoo, adjusted with the same factor as
+  the close. No intraday prices are used.
+
+**First available price (P_first)**, by acceptance session on New York trading days:
+
+| Accepted | Price just before (P_before) | First price a daily-data trader can get (P_first) |
+|---|---|---|
+| Before 9:30, or on a non-trading day | previous close | next open |
+| 9:30–16:00 (market hours) | that day's open | that day's close (conservative: the intraday move after acceptance is not measurable) |
+| 16:00 or later | that day's close | next trading day's open |
+
+**Measures**, all as excess returns versus IWM over the same timestamps,
+qualifying buys in the development sample (filed 2010–2024):
+
+- **Gap** = P_before → P_first: reaction an outsider cannot capture with daily prices.
+- **Capture** = P_first → standard entry (the close of the first trading day
+  after the filing date): what acting immediately adds over the original design.
+- **Real-time 60-day** = P_first → 60 trading days after the P_first day.
+
+**Hypotheses** (predicted sign +):
+
+| ID | Test |
+|---|---|
+| R1 | mean Capture > 0 |
+| R2 | mean real-time 60-day excess return, net of the assumed costs in `config.yaml`, > 0 |
+
+**Decision rules.**
+- Same as section 7: month-clustered bootstrap, Benjamini–Hochberg across R1
+  and R2, the same sign in each sub-period (2010–14, 2015–19, 2020–24), and a
+  one-sided test in the 2025+ holdout only for hypotheses supported in development.
+- Descriptive breakdowns (by session, officers and directors versus 10%
+  holders, liquidity tier) are reported but not used for decisions.
+
+**Known limitations.**
+- Daily data only: for market-hours filings the intraday reaction after
+  acceptance is counted as lost, which understates what a fast trader captures.
+- Opening auctions in small caps have wide spreads; the cost tiers are
+  probably optimistic for open entries.
+
 ## Amendments
 
 **Amendment 1 (17 Nov 2026, after the first development run).** Added a
