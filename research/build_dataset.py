@@ -206,6 +206,9 @@ class PriceIndex:
         names = cik.dictionary.to_pylist()
         days = t["date"].combine_chunks().cast("int32").to_numpy(zero_copy_only=False)  # days since 1970
         closes = t["adj_close"].combine_chunks().to_numpy(zero_copy_only=False)
+        opens = None
+        if "open_adj" in t.column_names:                                   # Yahoo download only
+            opens = t["open_adj"].combine_chunks().to_numpy(zero_copy_only=False)
         dollar_vol = None
         if "close" in t.column_names and "volume" in t.column_names:      # Yahoo download only
             dollar_vol = (t["close"].combine_chunks().to_numpy(zero_copy_only=False)
@@ -217,8 +220,9 @@ class PriceIndex:
             order = np.lexsort((days, codes))
             codes, days, closes = codes[order], days[order], closes[order]
             dollar_vol = dollar_vol[order] if dollar_vol is not None else None
+            opens = opens[order] if opens is not None else None
         bounds = np.flatnonzero(np.r_[True, codes[1:] != codes[:-1], True])
-        self._days, self._closes, self._dollar_vol = days, closes, dollar_vol
+        self._days, self._closes, self._dollar_vol, self._opens = days, closes, dollar_vol, opens
         self._span = {names[codes[a]]: (a, b) for a, b in zip(bounds[:-1], bounds[1:])}
         self.global_last = days.max().astype(D)
 
@@ -231,6 +235,14 @@ class PriceIndex:
             return np.array([], dtype=D), np.array([])
         a, b = span
         return self._days[a:b].astype(D), self._closes[a:b]
+
+    def get_open(self, cik):
+        """Adjusted opens aligned to get(cik)'s dates, or None if opens were not downloaded."""
+        span = self._span.get(cik)
+        if span is None or self._opens is None:
+            return None
+        a, b = span
+        return self._opens[a:b]
 
     def median_dollar_volume(self, cik, window=20):
         """Median daily dollar volume over the `window` trading days BEFORE each date (None if unavailable)."""

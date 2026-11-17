@@ -42,6 +42,19 @@ def load_benchmark(cfg: dict, symbol: str):
     return b["date"].to_numpy().astype("datetime64[D]"), b["adj_close"].to_numpy(float)
 
 
+def load_benchmark_open(cfg: dict, symbol: str):
+    """(dates, adjusted opens) for one benchmark, or None if opens were not downloaded."""
+    import pandas as pd
+
+    bench = pd.read_parquet(price_paths(cfg)[1])
+    if "open_adj" not in bench:
+        return None
+    b = bench[bench["symbol"].str.split(".").str[0] == symbol].sort_values("date")
+    if b.empty or b["open_adj"].isna().all():
+        return None
+    return b["date"].to_numpy().astype("datetime64[D]"), b["open_adj"].to_numpy(float)
+
+
 def connect_readonly():
     """Open a connection that cannot write, whatever role it logs in as.
 

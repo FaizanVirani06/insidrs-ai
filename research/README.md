@@ -45,6 +45,8 @@ Rules for everything in this folder:
 | `fetch_factors.py` | Fama-French 5 factors + momentum, daily, from Ken French's library |
 | `build_events.py` | Event-time windows (trade -> filing -> entry -> +h) and pre-registered features |
 | `analysis/h_preregistered.py` | Pre-registered tests H1-H5; development sample unless `--open-holdout` |
+| `fetch_acceptance.py` | Exact EDGAR acceptance time of every Form 4 (SEC submissions data) |
+| `analysis/realtime.py` | Study 2: how much of the disclosure reaction a real-time reader can capture |
 
 `data/` and `output/` are git-ignored.
 
@@ -167,6 +169,28 @@ The research container connects with a read-only session and only runs
 **Reported amounts**
 - 213 buys over $1B, 320 with a reported price over $10,000 (parse errors);
   378 buy and 458 sell trade dates carry a timezone suffix.
+
+## Study 1 results (pre-registered, development sample 2010-2024, run 17 Nov 2026)
+
+**Where the return arrives** (all 56,244 qualifying buys with factor data):
+
+| Window | Factor BHAR (95% CI) | Excess vs IWM |
+|---|---|---|
+| Trade to the day before filing (insider only) | +0.29% (+0.23, +0.35) | +0.27% |
+| Disclosure: day before filing to the day after | +1.58% (+1.33, +1.79) | +1.49% |
+| Tradeable, 60 days | +1.69% (+0.41, +3.47), median +0.49% | +0.25% |
+| Tradeable, 180 days | +3.72% (+1.50, +6.56), median +0.47% | -0.76% |
+
+The disclosure reaction is consistent across all three measures. After entry,
+the factor-adjusted mean is positive but carried by a minority of trades
+(medians near zero, hit rates 51-52%). Against the Russell 2000 it is near zero.
+
+**Hypotheses:** none met the development criteria (table in PREREGISTRATION.md).
+H1 came out opposite to the prediction: routine beat opportunistic by 4.8 points
+(BHAR, 60 days). Exploratory composition (not a claim): routine buys come from only
+285 insiders, 70% of them 10%-holder filers, with half the volatility and three
+times the purchase size of opportunistic buys. Most of the gap is between
+non-financial 10% holders: routine +5.8% versus opportunistic -8.2% (60-day excess vs IWM).
 
 ## Q1 results (run 15 Nov 2026): did the AI ratings work?
 

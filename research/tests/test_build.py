@@ -196,3 +196,18 @@ def test_bhar_compounds_returns():
     w = issuer_windows(dates, closes, f, (dates, np.full(len(dates), 50.0)), ev).iloc[0]
     assert abs(w["bhar_ff6_D60"]) < 1e-9                           # stock == prediction -> zero abnormal return
     assert abs(w["car_ff6_D60"]) < 1e-9
+
+
+def test_first_available_price_by_acceptance_session():
+    from research.analysis.realtime import first_prices
+
+    cal = np.array(["2020-03-02", "2020-03-03", "2020-03-04", "2020-03-06"], dtype=D)   # Thu 3/5 is a holiday here
+    acc_date = np.array(["2020-03-03", "2020-03-03", "2020-03-03", "2020-03-05", "2020-03-01"], dtype=D)
+    acc_min = np.array([8 * 60, 11 * 60, 18 * 60, 12 * 60, 12 * 60])
+    session, bd, bf, fd, ff = first_prices(cal, acc_date, acc_min)
+    assert list(session) == ["pre-market", "market hours", "after close", "non-trading day", "non-trading day"]
+    # pre-market Tue: Mon close -> Tue open; market hours: Tue open -> Tue close; after close: Tue close -> Wed open
+    assert list(zip(bd[:3], bf[:3], fd[:3], ff[:3])) == [(0, 1, 1, 0), (1, 0, 1, 1), (1, 1, 2, 0)]
+    # holiday: Wed close -> Fri open; Sunday before the calendar starts: no earlier close -> unusable
+    assert (bd[3], bf[3], fd[3], ff[3]) == (2, 1, 3, 0)
+    assert bd[4] == -1 and fd[4] == -1
