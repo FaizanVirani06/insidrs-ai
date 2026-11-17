@@ -21,7 +21,8 @@ FETCH = [["research.extract"], ["research.fetch_prices", "--refresh"], ["researc
 REST = [["research.build_dataset"], ["research.build_events"], ["research.sanity_check"], ["research.analysis.q1_ratings"],
         ["research.analysis.q2_track_records"], ["research.analysis.q3_features"],
         ["research.analysis.q4_sells"], ["research.analysis.robustness"],
-        ["research.analysis.h_preregistered"], ["research.analysis.realtime"]]       # development sample only; never opens the holdout
+        ["research.analysis.h_preregistered"], ["research.analysis.realtime"],
+        ["research.build_study3"], ["research.analysis.study3"]]       # development sample only; never opens the holdout
 
 
 def main() -> None:

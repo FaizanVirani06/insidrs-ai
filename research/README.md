@@ -45,8 +45,10 @@ Rules for everything in this folder:
 | `fetch_factors.py` | Fama-French 5 factors + momentum, daily, from Ken French's library |
 | `build_events.py` | Event-time windows (trade -> filing -> entry -> +h) and pre-registered features |
 | `analysis/h_preregistered.py` | Pre-registered tests H1-H5; development sample unless `--open-holdout` |
-| `fetch_acceptance.py` | Exact EDGAR acceptance time of every Form 4 (SEC submissions data) |
+| `fetch_acceptance.py` | Exact EDGAR acceptance times of Form 4s, plus earnings-release 8-Ks and Schedule 13D/13G (SEC submissions data) |
 | `analysis/realtime.py` | Study 2: how much of the disclosure reaction a real-time reader can capture |
+| `build_study3.py` | Study 3 features: earnings releases (8-K 2.02), 13D filings, 10b5-1 flags, option exercises, switchers, accumulation |
+| `analysis/study3.py` | Study 3: pre-registered hypotheses S1-S10 (`--stage dev`, then `A`, then `B`) |
 
 `data/` and `output/` are git-ignored.
 

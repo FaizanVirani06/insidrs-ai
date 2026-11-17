@@ -269,6 +269,8 @@ def stack_sides(ev: pd.DataFrame) -> pd.DataFrame:
         for col in ("trade_date", "shares_total", "dollars_total", "vwap_price",
                     "shares_owned_following", "pct_holdings_change"):
             s[col] = src[f"{side}_{col}"].to_numpy()
+        s["last_tx_date"] = pd.to_datetime(src[f"{side}_last_tx_date"], errors="coerce").to_numpy() \
+            if f"{side}_last_tx_date" in src else pd.NaT
         s["prod_cluster_flag"] = src[f"prod_cluster_flag_{side}"].to_numpy()
         for h in (60, 180):
             s[f"prod_ex_{h}"] = src[f"prod_{side}_ex_{h}"].to_numpy()

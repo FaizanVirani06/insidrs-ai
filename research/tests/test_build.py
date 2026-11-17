@@ -211,3 +211,33 @@ def test_first_available_price_by_acceptance_session():
     # holiday: Wed close -> Fri open; Sunday before the calendar starts: no earlier close -> unusable
     assert (bd[3], bf[3], fd[3], ff[3]) == (2, 1, 3, 0)
     assert bd[4] == -1 and fd[4] == -1
+
+
+def test_announcement_day_and_three_day_reaction():
+    import pandas as pd
+
+    from research.build_study3 import announcement_days, reaction3
+
+    cal = np.array(["2021-01-04", "2021-01-05", "2021-01-06", "2021-01-07", "2021-01-08", "2021-01-11"], dtype=D)
+    acc = pd.Series(pd.to_datetime(["2021-01-06 14:00", "2021-01-06 21:30", "2021-01-09 15:00"]).tz_localize("UTC"))
+    # 9:00 New York -> same day; 16:30 New York -> next day; Saturday -> Monday
+    assert list(announcement_days(cal, acc).astype(str)) == ["2021-01-06", "2021-01-07", "2021-01-11"]
+    closes = np.array([100, 100, 100, 110, 110, 110.0])
+    bench = np.full(len(cal), 50.0)
+    r = reaction3(cal, closes, cal, bench, np.array(["2021-01-07"], dtype=D))
+    assert np.isclose(r[0], 0.10)                      # close of 1/05 -> close of 1/08
+
+
+def test_switcher_counts_only_earlier_filings():
+    import pandas as pd
+
+    from research.build_study3 import switcher_flags
+
+    hist = pd.DataFrame({"insider_id": ["a"] * 4, "side": ["sell", "sell", "sell", "buy"],
+                         "trade_date": pd.to_datetime(["2019-01-01", "2019-06-01", "2020-01-01", "2020-05-01"]),
+                         "filing_date": pd.to_datetime(["2019-01-03", "2019-06-03", "2020-01-03", "2020-08-01"])})
+    t = pd.DataFrame({"insider_id": ["a"], "trade_date": pd.to_datetime(["2020-06-01"]),
+                      "filing_date": pd.to_datetime(["2020-06-03"])})
+    out = switcher_flags(hist, t)
+    # the May 2020 buy was filed AFTER the target filing, so it does not count yet
+    assert (out.iloc[0]["prior36_sells"], out.iloc[0]["prior36_buys"]) == (3, 0)

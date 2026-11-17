@@ -24,9 +24,9 @@ SELECT e.issuer_cik, e.owner_key, e.accession_number, e.ticker,
        f.form_type,
        e.owner_cik, e.owner_name_display, e.owner_title,
        e.is_officer, e.is_director, e.is_ten_percent_owner,
-       e.has_buy, LEFT(e.buy_trade_date, 10) AS buy_trade_date, e.buy_shares_total, e.buy_dollars_total,
+       e.has_buy, LEFT(e.buy_trade_date, 10) AS buy_trade_date, LEFT(e.buy_last_tx_date, 10) AS buy_last_tx_date, e.buy_shares_total, e.buy_dollars_total,
        e.buy_vwap_price, e.buy_shares_owned_following, e.buy_pct_holdings_change,
-       e.has_sell, LEFT(e.sell_trade_date, 10) AS sell_trade_date, e.sell_shares_total, e.sell_dollars_total,
+       e.has_sell, LEFT(e.sell_trade_date, 10) AS sell_trade_date, LEFT(e.sell_last_tx_date, 10) AS sell_last_tx_date, e.sell_shares_total, e.sell_dollars_total,
        e.sell_vwap_price, e.sell_shares_owned_following, e.sell_pct_holdings_change,
        e.non_open_market_row_count, e.derivative_row_count,
        e.trend_ret_20d, e.trend_ret_60d, e.trend_dist_52w_high, e.trend_dist_52w_low,
@@ -80,6 +80,35 @@ ORDER BY ai_output_id
 """
 
 
+# Study 3: filing-level text flags from the Form 4 XML (computed in the database; the XML itself is not copied).
+FLAGS_SQL = r"""
+SELECT accession_number,
+       (xml_text ~* '10b5.?1' OR xml_text ~* '<aff10b5One>\s*(1|true)\s*</aff10b5One>') AS plan_10b5_1,
+       (xml_text ~* '(withh(e|o)ld|tax withholding|satisfy (the )?(reporting person.s )?tax|tax obligation|tax liabilit)')
+           AS mentions_tax
+FROM filing_documents
+"""
+
+# Study 3: option-exercise events (any filing with a code M transaction), with what else happened on the filing.
+EXERCISE_SQL = r"""
+WITH x AS (
+  SELECT issuer_cik, owner_key, accession_number,
+         COUNT(*) FILTER (WHERE transaction_code = 'M') AS n_m,
+         COUNT(*) FILTER (WHERE transaction_code = 'S' AND is_derivative = 0) AS n_s,
+         COUNT(*) FILTER (WHERE transaction_code = 'F') AS n_f,
+         SUM(shares_abs) FILTER (WHERE transaction_code = 'M' AND is_derivative = 0) AS m_shares
+  FROM form4_rows_raw
+  GROUP BY issuer_cik, owner_key, accession_number
+  HAVING COUNT(*) FILTER (WHERE transaction_code = 'M') > 0
+)
+SELECT x.*, e.ticker, LEFT(e.filing_date, 10) AS filing_date, LEFT(e.event_trade_date, 10) AS trade_date,
+       e.owner_cik, e.owner_title, e.is_officer, e.is_director, e.is_ten_percent_owner, f.form_type
+FROM x
+JOIN insider_events e USING (issuer_cik, owner_key, accession_number)
+LEFT JOIN filings f ON f.accession_number = x.accession_number
+"""
+
+
 def dump(conn, name: str, sql: str, out_dir, dictionary_cols=(), chunk: int = 200_000) -> int:
     """Stream a query to a Parquet file without loading it all into memory."""
     path = out_dir / f"{name}.parquet"
@@ -117,6 +146,8 @@ def main() -> None:
     conn = connect_readonly()
     try:
         dump(conn, "events", EVENTS_SQL, out)
+        dump(conn, "filing_flags", FLAGS_SQL, out)
+        dump(conn, "exercises", EXERCISE_SQL, out)
         dump(conn, "ratings", RATINGS_SQL, out)
         dump(conn, "benchmark", BENCH_SQL, out)
         dump(conn, "prices", PRICES_SQL, out, dictionary_cols=("issuer_cik",), chunk=500_000)
