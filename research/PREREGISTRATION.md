@@ -123,4 +123,33 @@ can act on it.
 
 ## Amendments
 
-*(none)*
+**Amendment 1 (17 Nov 2026, after the first development run).** Added a
+buy-and-hold abnormal return (BHAR: compounded stock return minus compounded
+factor-predicted return) as a secondary outcome and to the window table.
+
+- **Reason.** The first run showed factor-adjusted CARs well above the
+  compounded excess return versus IWM: +2.6% versus +0.3% at 60 days, and +5.4%
+  versus −0.8% at 180 days. A CAR sums daily returns, which overstates
+  long-horizon returns of volatile stocks by roughly half the daily variance per
+  day (about 0.05–0.08% a day for typical small caps). This is a known
+  event-study problem (long-horizon CAR versus BHAR), and it should have been
+  anticipated in the original plan.
+- **What does not change.** The primary outcome and the decision rules are
+  unchanged, so the H1–H5 verdicts from the first run stand as recorded.
+  BHAR is used only to interpret the window table.
+- **Exploratory addition.** A table describing who the routine and
+  opportunistic buyers are (role, sector, size, liquidity, volatility) was
+  added, prompted by H1 coming out opposite to the prediction. It is labelled
+  exploratory and cannot support a claim without a new pre-registered test.
+
+**First development run (17 Nov 2026), recorded before amendment 1.**
+
+| Hypothesis | 60-day CAR spread (95% CI) | FDR p | Verdict |
+|---|---|---|---|
+| H1 opportunistic − routine | −3.75% (−6.4, −1.1) | 0.028 | not supported; significant in the opposite direction, with signs −7.3 / +0.6 / −5.7 across sub-periods |
+| H2 dip | +0.1% (−2.7, +3.3) | 0.96 | not supported |
+| H3 dip & post-report | +1.0% (−2.0, +4.3) | 0.90 | not supported |
+| H4 opportunistic & dip | −1.9% (−7.5, +3.1) | 0.90 | not supported |
+| H5 infrequent officer/director buyer | +0.2% (−1.0, +1.1) | 0.96 | not supported |
+
+No hypothesis met the development criteria, so none qualifies for the holdout.

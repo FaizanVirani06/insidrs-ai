@@ -175,3 +175,24 @@ def test_trader_types_use_only_earlier_filings():
     # a: traded every March 2017-19 -> routine. b: the 2019 trade was filed AFTER the target -> not yet eligible.
     assert list(out["trader_type"]) == ["routine", "insufficient history", "insufficient history"]
     assert list(out["bought_in_prior_window"]) == [True, True, False]
+
+
+def test_bhar_compounds_returns():
+    import pandas as pd
+
+    from research.build_events import issuer_windows
+
+    dates = np.arange(np.datetime64("2020-01-01"), np.datetime64("2021-06-01"), dtype=D)
+    rng = np.random.default_rng(1)
+    mkt = rng.normal(0, 0.03, len(dates))                          # volatile market
+    r = mkt                                                        # stock = market exactly: zero alpha
+    closes = 100 * np.cumprod(1 + np.r_[0, r[1:]])
+    zeros = np.zeros(len(dates))
+    f = pd.DataFrame({"mkt_rf": mkt, "smb": rng.normal(0, .005, len(dates)), "hml": rng.normal(0, .005, len(dates)),
+                      "rmw": rng.normal(0, .005, len(dates)), "cma": rng.normal(0, .005, len(dates)),
+                      "rf": zeros, "mom": rng.normal(0, .005, len(dates))},
+                     index=pd.DatetimeIndex(dates.astype("datetime64[ns]")))
+    ev = pd.DataFrame({"trade_date": pd.to_datetime(["2020-12-01"]), "filing_date": pd.to_datetime(["2020-12-03"])})
+    w = issuer_windows(dates, closes, f, (dates, np.full(len(dates), 50.0)), ev).iloc[0]
+    assert abs(w["bhar_ff6_D60"]) < 1e-9                           # stock == prediction -> zero abnormal return
+    assert abs(w["car_ff6_D60"]) < 1e-9

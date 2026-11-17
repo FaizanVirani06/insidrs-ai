@@ -43,14 +43,16 @@ def issuer_windows(dates, closes, factors, bench, events):
     events: DataFrame with trade_date, filing_date (datetime64). Returns a DataFrame aligned to it.
     """
     n, m = len(events), len(dates)
-    out = {f"{k}_{w}": np.full(n, np.nan) for k in ("car_ff6", "car_mkt", "ex_iwm") for w in WINDOWS}
+    out = {f"{k}_{w}": np.full(n, np.nan) for k in ("car_ff6", "car_mkt", "bhar_ff6", "ex_iwm") for w in WINDOWS}
     out["betas_ok"] = np.zeros(n, dtype=bool)
+    out["vol_est"] = np.full(n, np.nan)          # daily return volatility in the beta-estimation window
     if m < 30:
         return pd.DataFrame(out, index=events.index)
 
     f = factors.reindex(pd.DatetimeIndex(dates.astype("datetime64[ns]")))
     r = np.r_[np.nan, closes[1:] / closes[:-1] - 1.0]
-    y = r - f["rf"].to_numpy()
+    rf = f["rf"].to_numpy()
+    y = r - rf
     X = f[FACTORS].to_numpy()
     valid = np.isfinite(y) & np.isfinite(X).all(1)
     valid[0] = False
@@ -80,11 +82,13 @@ def issuer_windows(dates, closes, factors, bench, events):
                 A = np.column_stack([np.ones(len(sel)), X[sel]])
                 b_ff = np.linalg.lstsq(A, y[sel], rcond=None)[0][1:]
                 b_m = np.linalg.lstsq(A[:, :2], y[sel], rcond=None)[0][1]
-                beta_cache[a] = (b_ff, b_m)
+                beta_cache[a] = (b_ff, b_m, float(np.std(y[sel], ddof=1)))
             else:
                 beta_cache[a] = None
         betas = beta_cache[a]
         out["betas_ok"][k] = betas is not None
+        if betas is not None:
+            out["vol_est"][k] = betas[2]
         for w, bnd in window_bounds(a, p, e, m).items():
             if bnd is None:
                 continue
@@ -95,6 +99,10 @@ def issuer_windows(dates, closes, factors, bench, events):
             sy, sX = cy[t + 1] - cy[s + 1], cX[t + 1] - cX[s + 1]
             out[f"car_ff6_{w}"][k] = sy - sX @ betas[0]
             out[f"car_mkt_{w}"][k] = sy - sX[0] * betas[1]
+            # Buy-and-hold version: compound the stock and the factor-predicted return separately.
+            # (Summing daily returns, as a CAR does, overstates long-horizon returns of volatile stocks.)
+            seg = slice(s + 1, t + 1)
+            out[f"bhar_ff6_{w}"][k] = closes[t] / closes[s] - np.prod(1 + rf[seg] + X[seg] @ betas[0])
     return pd.DataFrame(out, index=events.index)
 
 

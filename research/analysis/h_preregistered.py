@@ -21,7 +21,8 @@ from research.common import ROOT, load_config
 pd.set_option("display.width", 220, "display.max_columns", 40)
 KEYS = ["issuer_cik", "owner_key", "accession_number", "side"]
 PRIMARY = "car_ff6_D60"
-SECONDARY = ["car_ff6_D20", "car_ff6_D180", "car_mkt_D60", "ex_iwm_D60"]
+SECONDARY = ["car_ff6_D20", "car_ff6_D180", "car_mkt_D60", "ex_iwm_D60",
+             "bhar_ff6_D60", "bhar_ff6_D180"]          # BHAR added by amendment 1
 WINDOWS = ["pre20", "B", "C", "D5", "D20", "D60", "D180"]
 
 
@@ -85,7 +86,7 @@ def decomposition(df, n_boot) -> pd.DataFrame:
     rows = []
     for name, g in groups.items():
         for w in WINDOWS:
-            for measure in ("car_ff6", "ex_iwm"):
+            for measure in ("car_ff6", "bhar_ff6", "ex_iwm"):
                 col = f"{measure}_{w}"
                 d = g[g[col].notna()]
                 s = summarize(d, col, n_boot=n_boot)
@@ -126,6 +127,27 @@ def test_hypotheses(df, cfg, holdout: bool, keep=None) -> tuple[pd.DataFrame, pd
     return res, pd.DataFrame(stability)
 
 
+def exploratory_h1(df, out) -> None:
+    """EXPLORATORY, not pre-registered: who are the routine and opportunistic buyers?
+
+    Prompted by H1 coming out in the opposite direction to the prediction.
+    Nothing here may be used to claim a result without a new pre-registered test.
+    """
+    d = df[df["classified"]].copy()
+    d["financials"] = d["sector"] == "Financial Services"
+    comp = d.groupby("trader_type").agg(
+        buys=("trader_type", "size"), insiders=("insider_id", "nunique"),
+        officers_directors=("officer_director", "mean"), financials=("financials", "mean"),
+        median_market_cap=("mcap_pit", "median"), median_daily_dollar_volume=("adv_usd_20d", "median"),
+        median_daily_vol=("vol_est", "median"), median_purchase=("dollars_total", "median"),
+        mean_bhar_D60=("bhar_ff6_D60", "mean"), mean_ex_iwm_D60=("ex_iwm_D60", "mean"))
+    comp.to_csv(out / "prereg_exploratory_h1_composition_dev.csv")
+    print("\n== EXPLORATORY (not pre-registered): composition of routine vs opportunistic buys ==")
+    print(comp.round(4).T.to_string())
+    by = d.groupby(["trader_type", "officer_director", "financials"])["ex_iwm_D60"].agg(["size", "mean"]).round(4)
+    print("\nMean 60-day excess vs IWM by type, officer/director, financials:\n", by.to_string())
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--open-holdout", action="store_true")
@@ -136,7 +158,7 @@ def main() -> None:
     out = cfg["paths"]["output_dir"] / "tables"
     out.mkdir(exist_ok=True)
     df = load(cfg)
-    df = clip_to_dev(df, [f"{m}_{w}" for m in ("car_ff6", "car_mkt", "ex_iwm") for w in WINDOWS])
+    df = clip_to_dev(df, [f"{m}_{w}" for m in ("car_ff6", "car_mkt", "bhar_ff6", "ex_iwm") for w in WINDOWS])
 
     if args.open_holdout:
         if os.environ.get("HOLDOUT_CONFIRM") != "yes":
@@ -154,14 +176,19 @@ def main() -> None:
 
     dec = decomposition(sample, cfg["analysis"]["n_boot"])
     dec.to_csv(out / f"prereg_decomposition_{tag}.csv", index=False)
-    print("\n== Part 1. Mean return by window (factor-adjusted CAR; excess vs IWM in brackets) ==")
+    print("\n== Part 1. Mean return by window: factor CAR / factor BHAR [excess vs IWM] ==")
     car = dec[dec["measure"] == "car_ff6"].pivot(index="group", columns="window", values="mean")[WINDOWS]
     iwm = dec[dec["measure"] == "ex_iwm"].pivot(index="group", columns="window", values="mean")[WINDOWS]
-    table = car.map(lambda v: f"{v:+.2%}") + " [" + iwm.map(lambda v: f"{v:+.2%}") + "]"
+    bh = dec[dec["measure"] == "bhar_ff6"].pivot(index="group", columns="window", values="mean")[WINDOWS]
+    table = (car.map(lambda v: f"{v:+.2%}") + " / " + bh.map(lambda v: f"{v:+.2%}")
+             + " [" + iwm.map(lambda v: f"{v:+.2%}") + "]")
     print(table.to_string())
     ci = dec[(dec["measure"] == "car_ff6") & (dec["group"] == "all qualifying buys")]
     print("\nAll qualifying buys, factor-adjusted CAR with 95% CI:")
     print(ci[["window", "n", "months", "mean", "mean_lo", "mean_hi", "median", "hit_rate"]].round(4).to_string(index=False))
+    bci = dec[(dec["measure"] == "bhar_ff6") & (dec["group"] == "all qualifying buys")]
+    print("\nAll qualifying buys, factor-adjusted BHAR with 95% CI (amendment 1):")
+    print(bci[["window", "n", "months", "mean", "mean_lo", "mean_hi", "median", "hit_rate"]].round(4).to_string(index=False))
 
     res, stab = test_hypotheses(sample, cfg, holdout=args.open_holdout,
                                 keep=args.hypotheses.split(",") if args.open_holdout else None)
@@ -176,6 +203,8 @@ def main() -> None:
         print(stab[["id", "period", "n_top", "n_bottom", "spread", "lo", "hi", "p"]].round(4).to_string(index=False))
     print("\n== Secondary outcomes (not used for decisions) ==")
     print(res[res["outcome"] != PRIMARY][["id", "outcome", "n_top", "spread", "lo", "hi", "p"]].round(4).to_string(index=False))
+    if not args.open_holdout:
+        exploratory_h1(sample, out)
     print(f"\nTables: {out}")
 
 
