@@ -64,3 +64,11 @@ costs:
     - {max_usd: 1000000,   label: "$100K-$1M/day",    cost: 0.02}
     - {max_usd: 10000000,  label: "$1M-$10M/day",     cost: 0.01}
     - {max_usd: null,      label: "over $10M/day",    cost: 0.003}
+
+# --- Pre-registered study (see PREREGISTRATION.md; do not change after results) ---
+preregistered:
+  holdout_start: "2025-01-01"
+  dip_threshold: -0.10           # excess return vs IWM over 20 trading days before the trade
+  post_report_max_days: 30
+  infrequent_months: 24
+  subperiods: [[2010, 2014], [2015, 2019], [2020, 2024]]
